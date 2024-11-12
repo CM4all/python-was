@@ -66,12 +66,7 @@ void rethrow_python_exception()
 
 void add_sys_path(std::string_view path)
 {
-	auto sys_module = wrap(PyImport_ImportModule("sys"));
-	if (!sys_module) {
-		rethrow_python_exception();
-	}
-
-	auto sys_path = wrap(PyObject_GetAttrString(sys_module, "path"));
+	auto sys_path = PySys_GetObject("path"); // borrowed reference
 	if (!sys_path || !PyList_Check(sys_path)) {
 		rethrow_python_exception();
 	}
