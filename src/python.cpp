@@ -73,7 +73,7 @@ void add_sys_path(std::string_view path)
 {
 	auto sys_path = PySys_GetObject("path"); // borrowed reference
 	if (!sys_path || !PyList_Check(sys_path)) {
-		rethrow_python_exception();
+		throw Error("sys.path does not exist or is not a list");
 	}
 
 	// Append the current directory or any specific path to sys.path
