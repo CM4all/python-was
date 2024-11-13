@@ -1,12 +1,11 @@
-#include <string>
+#include <memory>
 #include <string_view>
 #include <vector>
 #include <optional>
-#include <utility>
 
 #include "python.hxx"
 #include "wsgi.hxx"
-#include "HttpServer.hxx"
+#include "http.hxx"
 
 #include <fmt/core.h>
 
@@ -63,18 +62,38 @@ struct CommandLine {
 	}
 };
 
+HttpRequestHeader request(HttpMethod method, std::string_view uri, std::string_view content_type, std::string body)
+{
+	HttpRequestHeader header {
+		.protocol = "HTTP/1.1",
+		.scheme = "http",
+		.method = method,
+		.uri = std::string(uri),
+		.headers = {},
+		.body={}
+	};
+	if (!body.empty()) {
+		const auto content_length = body.size();
+		header.body = std::make_unique<StringInputStream>(std::move(body));
+		header.headers.emplace_back("Content-Type", content_type);
+		header.headers.emplace_back("Content-Length", std::to_string(content_length));
+	}
+	return header;
+}
+
 int main(int argc, char **argv)
 {
-	Py::Python python;
 	try {
 		CommandLine args(argc, argv);
 		// If you are in a virtual environment, <venv>/bin should be in PATH.
 		// Python will try to find python3 in PATH and if it finds ../pyvenv.cfg next to python3, it will add
 		// the corresponding site-packages of the venv to the sys.path.
 		// So simply activating a venv should make this work. If it doesn't just add <venv>/lib/pythonX.YY/site-packages to sys.path.
+		Py::Python python;
 		Py::add_sys_path(".");
 		WsgiRequestHandler wsgi(args.module, args.app);
-		wsgi.OnRequest(HttpRequestHeader{.protocol="HTTP/1.1", .scheme="http", .method=HttpMethod::GET, .uri="/", .headers={}});
+		wsgi.OnRequest(request(HttpMethod::GET, "/", "", ""));
+		wsgi.OnRequest(request(HttpMethod::PUT, "/", "application/json", R"({"key": "value"})"));
 	} catch(const Py::Error& exc) {
 		fmt::print(stderr, "Python Exception: {}\n", exc.what());
 		return 1;

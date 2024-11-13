@@ -3,10 +3,40 @@
 #include <vector>
 #include <string>
 #include <optional>
+#include <memory>
 
 #include <http/Method.hxx>
 #include <util/CharUtil.hxx>
 #include <io/UniqueFileDescriptor.hxx>
+
+struct InputStream {
+	virtual ~InputStream() = default;
+	// Read up to size bytes, size=nullopt reads until EOF
+	virtual std::string_view Read(std::optional<size_t> size) = 0;
+};
+
+struct NullInputStream : public InputStream {
+	std::string_view Read(std::optional<size_t>) override
+	{
+		return {};
+	}
+};
+
+class StringInputStream : public InputStream {
+	std::string data;
+	size_t cursor = 0;
+
+public:
+	StringInputStream(std::string str) : data(std::move(str)) {}
+
+	std::string_view Read(std::optional<size_t> size) override
+	{
+		if (size) {
+			return std::string_view(data).substr(cursor, *size);
+		}
+		return std::string_view(data).substr(cursor);
+	}
+};
 
 struct HttpRequestHeader {
 	std::string protocol; // e.g. HTTP/1.1
@@ -14,6 +44,7 @@ struct HttpRequestHeader {
 	HttpMethod method;
 	std::string uri;
 	std::vector<std::pair<std::string, std::string>> headers;
+	std::unique_ptr<InputStream> body;
 
 	static bool HeaderMatch(std::string_view a, std::string_view b) {
 		if (a.empty() || a.size() != b.size()) {
@@ -42,7 +73,7 @@ struct HttpRequestHeader {
 
 struct RequestHandler {
 	virtual ~RequestHandler() = default;
-	virtual void OnRequest(const HttpRequestHeader& req) = 0;
+	virtual void OnRequest(HttpRequestHeader&& req) = 0;
 };
 
 struct Uri {

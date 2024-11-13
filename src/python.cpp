@@ -14,6 +14,11 @@ Object to_pyunicode(std::string_view str)
 	return wrap(PyUnicode_FromStringAndSize(str.data(), str.size()));
 }
 
+Object to_bytes(std::string_view str)
+{
+	return wrap(PyBytes_FromStringAndSize(str.data(), str.size()));
+}
+
 std::string_view to_string_view(PyObject* obj)
 {
 	if (PyBytes_Check(obj)) {

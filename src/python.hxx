@@ -45,6 +45,7 @@ private:
 Object wrap(PyObject* obj);
 
 Object to_pyunicode(std::string_view str);
+Object to_bytes(std::string_view str);
 std::string_view to_string_view(PyObject* obj);
 
 std::string get_type(PyObject* obj);
