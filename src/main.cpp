@@ -66,6 +66,7 @@ struct CommandLine {
 HttpRequest request(HttpMethod method, std::string_view uri, std::string_view content_type, std::string body)
 {
 	HttpRequest header {
+		.script_name = "",
 		.protocol = "HTTP/1.1",
 		.scheme = "http",
 		.method = method,

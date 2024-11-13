@@ -238,7 +238,7 @@ HttpResponse WsgiRequestHandler::OnRequest(HttpRequest&& req)
 	InputStream* body_stream = req.body ? req.body.release() : new NullInputStream;
 
 	PyDict_SetItemString(environ, "REQUEST_METHOD", PyUnicode_FromString(http_method_to_string(req.method)));
-	// TODO: SCRIPT_NAME, may be empty
+	PyDict_SetItemString(environ, "SCRIPT_NAME", Py::to_pyunicode(req.script_name));
 	PyDict_SetItemString(environ, "PATH_INFO", Py::to_pyunicode(req.uri.path));
 	PyDict_SetItemString(environ, "QUERY_STRING", Py::to_pyunicode(req.uri.query));
 	PyDict_SetItemString(environ, "CONTENT_TYPE", Py::to_pyunicode(content_type.value_or("")));

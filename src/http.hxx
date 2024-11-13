@@ -50,6 +50,7 @@ struct Uri {
 };
 
 struct HttpRequest {
+	std::string script_name;
 	std::string protocol; // e.g. HTTP/1.1
 	std::string scheme; // TODO: probably hardcode this to 'http'
 	HttpMethod method;
