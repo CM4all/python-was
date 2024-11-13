@@ -7,6 +7,16 @@ project('Python Gateway Interface Bridge',
   ]
 )
 
+cxxflags = [
+  # man gcc says: "This option does not warn about designated initializers", but it does
+  # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96868
+  '-Wno-missing-field-initializers',
+  # -Wdelete-non-virtual-dtor is the better warning and included in -Wall
+  '-Wno-non-virtual-dtor',
+]
+
+add_global_arguments(cxxflags, language: 'cpp')
+
 compiler = meson.get_compiler('cpp')
 
 inc = include_directories(
