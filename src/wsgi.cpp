@@ -237,17 +237,17 @@ HttpResponse WsgiRequestHandler::OnRequest(HttpRequest&& req)
 
 	InputStream* body_stream = req.body ? req.body.release() : new NullInputStream;
 
-	PyDict_SetItemString(environ, "REQUEST_METHOD", PyUnicode_FromString(http_method_to_string(req.method)));
+	PyDict_SetItemString(environ, "REQUEST_METHOD", Py::wrap(PyUnicode_FromString(http_method_to_string(req.method))));
 	PyDict_SetItemString(environ, "SCRIPT_NAME", Py::to_pyunicode(req.script_name));
 	PyDict_SetItemString(environ, "PATH_INFO", Py::to_pyunicode(req.uri.path));
 	PyDict_SetItemString(environ, "QUERY_STRING", Py::to_pyunicode(req.uri.query));
 	PyDict_SetItemString(environ, "CONTENT_TYPE", Py::to_pyunicode(content_type.value_or("")));
 	PyDict_SetItemString(environ, "CONTENT_LENGTH", Py::to_pyunicode(content_length.value_or("")));
-	PyDict_SetItemString(environ, "SERVER_NAME", PyUnicode_FromString("localhost")); // TODO
-	PyDict_SetItemString(environ, "SERVER_PORT", PyUnicode_FromString("8081")); // TODO
+	PyDict_SetItemString(environ, "SERVER_NAME", Py::wrap(PyUnicode_FromString("localhost"))); // TODO
+	PyDict_SetItemString(environ, "SERVER_PORT", Py::wrap(PyUnicode_FromString("8081"))); // TODO
 	PyDict_SetItemString(environ, "SERVER_PROTOCOL",  Py::to_pyunicode(req.protocol));
 
-	PyDict_SetItemString(environ, "wsgi.version", Py_BuildValue("(ii)", 1, 0));
+	PyDict_SetItemString(environ, "wsgi.version",Py::wrap(Py_BuildValue("(ii)", 1, 0)));
 	PyDict_SetItemString(environ, "wsgi.url_scheme", Py::to_pyunicode(req.scheme));
 	PyDict_SetItemString(environ, "wsgi.input", WsgiInputStream::CreatePyObject(body_stream));
 	PyDict_SetItemString(environ, "wsgi.errors", PySys_GetObject("stderr"));  // TODO
@@ -265,7 +265,7 @@ HttpResponse WsgiRequestHandler::OnRequest(HttpRequest&& req)
 	}
 
 	HttpResponse response;
-	auto response_capsule = PyCapsule_New(&response, "HttpResponse", NULL);
+	auto response_capsule = PyCapsule_New(&response, "HttpResponse", nullptr);
 
 	PyMethodDef start_response_def = {
 		"start_response", (PyCFunction)StartResponse, METH_VARARGS, "WSGI start_response"};
