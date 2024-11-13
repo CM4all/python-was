@@ -98,16 +98,17 @@ PyMethodDef* WsgiInputStream::GetMethodDef()
 PyTypeObject* WsgiInputStream::GetTypeObject()
 {
 	static auto type = []() {
-		PyTypeObject type = {};
-		type.tp_new = PyType_GenericNew;
-		type.tp_dealloc = &WsgiInputStream::dealloc;
-		type.tp_name = "py_gi_bridge.WsgiInputStream";
-		type.tp_basicsize = sizeof(WsgiInputStream);
-		type.tp_flags = Py_TPFLAGS_DEFAULT;
-		type.tp_doc = "File-like object to read request body";
-		type.tp_iter = iter;
-		type.tp_iternext = next;
-		type.tp_methods = GetMethodDef();
+		PyTypeObject type = {
+			.tp_name = "py_gi_bridge.WsgiInputStream",
+			.tp_basicsize = sizeof(WsgiInputStream),
+			.tp_dealloc = &WsgiInputStream::dealloc,
+			.tp_flags = Py_TPFLAGS_DEFAULT,
+			.tp_doc = "File-like object to read request body",
+			.tp_iter = iter,
+			.tp_iternext = next,
+			.tp_methods = GetMethodDef(),
+			.tp_new = PyType_GenericNew,
+		};
 
 		if (PyType_Ready(&type) < 0)
 		{
