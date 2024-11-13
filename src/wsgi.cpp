@@ -6,6 +6,8 @@
 
 #include "http.hxx"
 #include "python.hxx"
+
+#include "http/status.h"
 #include "util/CharUtil.hxx"
 #include "util/NumberParser.hxx"
 
@@ -46,14 +48,14 @@ PyObject* WsgiInputStream::read(PyObject* self, PyObject* args)
 PyObject* WsgiInputStream::readline(PyObject* /*self*/, PyObject* /*args*/)
 {
 	// TODO, not used by flask
-	fmt::print("readline\n");
+	fmt::print(stderr, "readline\n");
 	return Py_None;
 }
 
 PyObject* WsgiInputStream::readlines(PyObject* /*self*/, PyObject* /*args*/)
 {
 	// TODO, not used by flask
-	fmt::print("readlines\n");
+	fmt::print(stderr, "readlines\n");
 	return Py_None;
 }
 
@@ -66,7 +68,7 @@ PyObject* WsgiInputStream::iter(PyObject* self)
 PyObject* WsgiInputStream::next(PyObject* /*self*/)
 {
 	// TODO, not used by flask
-	fmt::print("next\n");
+	fmt::print(stderr, "next\n");
 	return Py_None;
 }
 
@@ -148,6 +150,7 @@ WsgiRequestHandler::WsgiRequestHandler(std::optional<std::string_view> module_na
 	} else {
 		module = Py::import("app");
 		if (!module) {
+			PyErr_Clear();
 			module = Py::import("wsgi");
 		}
 		if (!module) {
@@ -195,7 +198,7 @@ PyObject* WsgiRequestHandler::StartResponse(PyObject* self, PyObject* args) {
 	if (!status_code) {
 		throw std::runtime_error(fmt::format("Could not parse status code: '{}'", status_str));
 	}
-	response->status = *status_code;
+	response->status = static_cast<http_status_t>(*status_code);
 
 	const auto len = PyList_Size(headers);
 	for (std::remove_const_t<decltype(len)> i = 0; i < len; i++) {

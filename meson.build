@@ -32,6 +32,7 @@ subdir('libcommon/src/uri')
 subdir('libcommon/src/time')
 subdir('libcommon/src/http')
 subdir('libcommon/src/io')
+subdir('libcommon/src/was')
 
 executable('py-gi-bridge',
   'src/main.cpp',
@@ -40,6 +41,7 @@ executable('py-gi-bridge',
   dependencies : [
     fmt_dep,
     python_dep,
+    was_dep,
   ],
   include_directories: inc,
   install : true

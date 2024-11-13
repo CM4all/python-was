@@ -5,7 +5,8 @@
 #include <optional>
 #include <memory>
 
-#include <http/Method.hxx>
+#include <http/method.h>
+#include <http/status.h>
 #include <util/CharUtil.hxx>
 
 struct InputStream {
@@ -49,27 +50,29 @@ struct Uri {
 	}
 };
 
+inline bool HeaderMatch(std::string_view a, std::string_view b) {
+	if (a.empty() || a.size() != b.size()) {
+		return false;
+	}
+	for (size_t i = 0; i < a.size(); ++i)
+	{
+		if (ToLowerASCII(a[i]) != ToLowerASCII(b[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
 struct HttpRequest {
 	std::string script_name;
 	std::string protocol; // e.g. HTTP/1.1
 	std::string scheme; // TODO: probably hardcode this to 'http'
-	HttpMethod method;
+	http_method_t method;
 	Uri uri;
 	std::vector<std::pair<std::string, std::string>> headers;
 	std::unique_ptr<InputStream> body;
 
-	static bool HeaderMatch(std::string_view a, std::string_view b) {
-		if (a.empty() || a.size() != b.size()) {
-			return false;
-		}
-		for (size_t i = 0; i < a.size(); ++i)
-		{
-			if (ToLowerASCII(a[i]) != ToLowerASCII(b[i])) {
-				return false;
-			}
-		}
-		return true;
-	}
+
 
 	std::optional<std::string_view> FindHeader(std::string_view header_name) const
 	{
@@ -84,7 +87,7 @@ struct HttpRequest {
 };
 
 struct HttpResponse {
-	uint32_t status;
+	http_status_t status;
 	std::vector<std::pair<std::string, std::string>> headers;
 	std::string body;
 };
