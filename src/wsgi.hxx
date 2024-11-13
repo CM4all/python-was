@@ -15,7 +15,7 @@ struct WsgiRequestHandler : public RequestHandler {
 
 	static std::string TranslateHeader(std::string_view header_name);
 
-	virtual void OnRequest(HttpRequestHeader&& req) override;
+	virtual HttpResponse OnRequest(HttpRequest&& req) override;
 
 	Py::Object module;
 	Py::Object app;

@@ -2,6 +2,7 @@
 #include <string_view>
 #include <vector>
 #include <optional>
+#include <span>
 
 #include "python.hxx"
 #include "wsgi.hxx"
@@ -62,13 +63,13 @@ struct CommandLine {
 	}
 };
 
-HttpRequestHeader request(HttpMethod method, std::string_view uri, std::string_view content_type, std::string body)
+HttpRequest request(HttpMethod method, std::string_view uri, std::string_view content_type, std::string body)
 {
-	HttpRequestHeader header {
+	HttpRequest header {
 		.protocol = "HTTP/1.1",
 		.scheme = "http",
 		.method = method,
-		.uri = std::string(uri),
+		.uri = Uri::split(uri),
 		.headers = {},
 		.body={}
 	};
@@ -79,6 +80,15 @@ HttpRequestHeader request(HttpMethod method, std::string_view uri, std::string_v
 		header.headers.emplace_back("Content-Length", std::to_string(content_length));
 	}
 	return header;
+}
+
+void print_response(const HttpResponse& resp)
+{
+	fmt::print("STATUS {}\n", resp.status);
+	for (const auto& [name, value] : resp.headers) {
+		fmt::print("{}: {}\n", name, value);
+	}
+	fmt::print("{}\n", resp.body);
 }
 
 int main(int argc, char **argv)
@@ -92,8 +102,8 @@ int main(int argc, char **argv)
 		Py::Python python;
 		Py::add_sys_path(".");
 		WsgiRequestHandler wsgi(args.module, args.app);
-		wsgi.OnRequest(request(HttpMethod::GET, "/", "", ""));
-		wsgi.OnRequest(request(HttpMethod::PUT, "/", "application/json", R"({"key": "value"})"));
+		print_response(wsgi.OnRequest(request(HttpMethod::GET, "/", "", "")));
+		print_response(wsgi.OnRequest(request(HttpMethod::PUT, "/", "application/json", R"({"key": "value"})")));
 	} catch(const Py::Error& exc) {
 		fmt::print(stderr, "Python Exception: {}\n", exc.what());
 		return 1;

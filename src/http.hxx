@@ -7,7 +7,6 @@
 
 #include <http/Method.hxx>
 #include <util/CharUtil.hxx>
-#include <io/UniqueFileDescriptor.hxx>
 
 struct InputStream {
 	virtual ~InputStream() = default;
@@ -38,11 +37,23 @@ public:
 	}
 };
 
-struct HttpRequestHeader {
+struct Uri {
+	std::string_view path;
+	std::string_view query;
+
+	static Uri split(std::string_view uri) {
+		const auto q = uri.find('?');
+		const auto path = uri.substr(0, q);
+		const auto query = q == std::string_view::npos ? std::string_view{} : uri.substr(q);
+		return Uri { .path = path, .query = query };
+	}
+};
+
+struct HttpRequest {
 	std::string protocol; // e.g. HTTP/1.1
 	std::string scheme; // TODO: probably hardcode this to 'http'
 	HttpMethod method;
-	std::string uri;
+	Uri uri;
 	std::vector<std::pair<std::string, std::string>> headers;
 	std::unique_ptr<InputStream> body;
 
@@ -71,19 +82,13 @@ struct HttpRequestHeader {
 	}
 };
 
-struct RequestHandler {
-	virtual ~RequestHandler() = default;
-	virtual void OnRequest(HttpRequestHeader&& req) = 0;
+struct HttpResponse {
+	uint32_t status;
+	std::vector<std::pair<std::string, std::string>> headers;
+	std::string body;
 };
 
-struct Uri {
-	std::string_view path;
-	std::string_view query;
-
-	static Uri split(std::string_view uri) {
-		const auto q = uri.find('?');
-		const auto path = uri.substr(0, q);
-		const auto query = q == std::string_view::npos ? std::string_view{} : uri.substr(q);
-		return Uri { .path = path, .query = query };
-	}
+struct RequestHandler {
+	virtual ~RequestHandler() = default;
+	virtual HttpResponse OnRequest(HttpRequest&& req) = 0;
 };

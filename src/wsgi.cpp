@@ -176,23 +176,34 @@ WsgiRequestHandler::WsgiRequestHandler(std::optional<std::string_view> module_na
 	}
 }
 
-PyObject* WsgiRequestHandler::StartResponse(PyObject* /*self*/, PyObject* args) {
+PyObject* WsgiRequestHandler::StartResponse(PyObject* self, PyObject* args) {
 	// These are owned by the Python interpreter, because they are passed to the function.
 	// Therefore we don't have to decref them and therefore I don't wrap them.
 	PyObject *status, *headers;
 	if (!PyArg_ParseTuple(args, "OO", &status, &headers)) {
-		return nullptr;
+		Py::rethrow_python_exception();
 	}
 
-	fmt::print("{}\n", Py::to_string_view(status));
+	auto response = static_cast<HttpResponse*>(PyCapsule_GetPointer(self, "HttpResponse"));
+	if (!response) {
+		throw std::runtime_error("Cannot call start_response after request is finished");
+	}
+
+	const auto status_str = Py::to_string_view(status);
+	const auto status_code = ParseInteger<uint16_t>(status_str.substr(0, status_str.find(' ')));
+	if (!status_code) {
+		throw std::runtime_error(fmt::format("Could not parse status code: '{}'", status_str));
+	}
+	response->status = *status_code;
+
 	const auto len = PyList_Size(headers);
 	for (std::remove_const_t<decltype(len)> i = 0; i < len; i++) {
 		// Also a borrowed reference, see above
 		PyObject* item = PyList_GetItem(headers, i);
 		if (item) {
-			fmt::print("{}: {}\n",
-				Py::to_string_view(PyTuple_GetItem(item, 0)),
-				Py::to_string_view(PyTuple_GetItem(item, 1)));
+			const auto name = Py::to_string_view(PyTuple_GetItem(item, 0));
+			const auto value = Py::to_string_view(PyTuple_GetItem(item, 1));
+			response->headers.emplace_back(name, value);
 		}
 	}
 
@@ -213,14 +224,13 @@ std::string WsgiRequestHandler::TranslateHeader(std::string_view header_name)
 	return str;
 }
 
-void WsgiRequestHandler::OnRequest(HttpRequestHeader&& req)
+HttpResponse WsgiRequestHandler::OnRequest(HttpRequest&& req)
 {
 	auto environ = Py::wrap(PyDict_New());
 	if (!environ) {
 		Py::rethrow_python_exception();
 	}
 
-	const auto uri = Uri::split(req.uri);
 	const auto content_type = req.FindHeader("Content-Type");
 	// The spec is unclear, but Flask also passes Content-Length as a string
 	const auto content_length = req.FindHeader("Content-Length");
@@ -229,8 +239,8 @@ void WsgiRequestHandler::OnRequest(HttpRequestHeader&& req)
 
 	PyDict_SetItemString(environ, "REQUEST_METHOD", PyUnicode_FromString(http_method_to_string(req.method)));
 	// TODO: SCRIPT_NAME, may be empty
-	PyDict_SetItemString(environ, "PATH_INFO", Py::to_pyunicode(uri.path));
-	PyDict_SetItemString(environ, "QUERY_STRING", Py::to_pyunicode(uri.query));
+	PyDict_SetItemString(environ, "PATH_INFO", Py::to_pyunicode(req.uri.path));
+	PyDict_SetItemString(environ, "QUERY_STRING", Py::to_pyunicode(req.uri.query));
 	PyDict_SetItemString(environ, "CONTENT_TYPE", Py::to_pyunicode(content_type.value_or("")));
 	PyDict_SetItemString(environ, "CONTENT_LENGTH", Py::to_pyunicode(content_length.value_or("")));
 	PyDict_SetItemString(environ, "SERVER_NAME", PyUnicode_FromString("localhost")); // TODO
@@ -254,11 +264,12 @@ void WsgiRequestHandler::OnRequest(HttpRequestHeader&& req)
 		Py::rethrow_python_exception();
 	}
 
-	// Dummy start_response callable
+	HttpResponse response;
+	auto response_capsule = PyCapsule_New(&response, "HttpResponse", NULL);
+
 	PyMethodDef start_response_def = {
 		"start_response", (PyCFunction)StartResponse, METH_VARARGS, "WSGI start_response"};
-	auto start_response_callable = Py::wrap(PyCFunction_New(&start_response_def, nullptr));
-
+	auto start_response_callable = Py::wrap(PyCFunction_New(&start_response_def, response_capsule));
 	if (!start_response_callable) {
 		Py::rethrow_python_exception();
 	}
@@ -276,15 +287,24 @@ void WsgiRequestHandler::OnRequest(HttpRequestHeader&& req)
 		Py::rethrow_python_exception();
 	}
 
-	for (auto item = PyIter_Next(result_iterator); item; item = PyIter_Next(result_iterator)) {
+	for (auto item = Py::wrap(PyIter_Next(result_iterator)); item; item = PyIter_Next(result_iterator)) {
 		if (PyErr_Occurred()) {
 			Py::rethrow_python_exception();
 		}
-		fmt::print("{}", Py::to_string_view(item));
+		response.body.append(Py::to_string_view(item));
 	}
-	fmt::print("\n");
+
+	// A capsule must not store a nullptr, so SetPointer will fail with nullptr.
+	// Instead we change the name, so GetPointer will fail in StartResponse.
+	// We reset the capsule so in case the Python code kept a reference to start_response
+	// and called it after this function has finished, we do not get a use-after-free on `response`.
+	if (PyCapsule_SetName(response_capsule, nullptr)) {
+		Py::rethrow_python_exception();
+	}
 
 	if (PyErr_Occurred()) {
 		Py::rethrow_python_exception();
 	}
+
+	return response;
 }
