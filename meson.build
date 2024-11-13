@@ -14,7 +14,7 @@ inc = include_directories(
   'libcommon/src',
 )
 
-python_dep = dependency('python3-embed', required : true)
+python_dep = dependency('python3-embed')
 
 subdir('libcommon/src/util')
 subdir('libcommon/src/lib/fmt')
