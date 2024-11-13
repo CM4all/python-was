@@ -76,8 +76,7 @@ void add_sys_path(std::string_view path)
 		throw Error("sys.path does not exist or is not a list");
 	}
 
-	// Append the current directory or any specific path to sys.path
-	auto py_path = wrap(to_pyunicode(path));
+	auto py_path = to_pyunicode(path);
 	if (!py_path) {
 		rethrow_python_exception();
 	}
