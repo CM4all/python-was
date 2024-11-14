@@ -56,7 +56,7 @@ Object
 wrap(PyObject *obj) noexcept;
 
 Object
-to_pyunicode(std::string_view str) noexcept;
+to_pyunicode(std::string_view str);
 
 Object
 to_bytes(std::string_view str) noexcept;

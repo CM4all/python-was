@@ -11,9 +11,13 @@ wrap(PyObject *obj) noexcept
 }
 
 Object
-to_pyunicode(std::string_view str) noexcept
+to_pyunicode(std::string_view str)
 {
-	return wrap(PyUnicode_FromStringAndSize(str.data(), str.size()));
+	auto obj = wrap(PyUnicode_FromStringAndSize(str.data(), str.size()));
+	if (!obj) {
+		Py::rethrow_python_exception();
+	}
+	return obj;
 }
 
 Object

@@ -110,6 +110,7 @@ main(int argc, char **argv)
 		fmt::print(stderr, "cwd: {}\n", ::get_current_dir_name());
 		CommandLine args(argc, argv);
 		Py::Python python;
+
 		// If you are in a virtual environment, <venv>/bin should be in PATH.
 		// Python will try to find python3 in PATH and if it finds ../pyvenv.cfg next to python3, it will add
 		// the corresponding site-packages of the venv to the sys.path.
