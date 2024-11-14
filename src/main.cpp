@@ -99,6 +99,29 @@ print_response(const HttpResponse &resp) noexcept
 	fmt::print(stderr, "{}\n", resp.body);
 }
 
+// This is a WasInputStream as opposed to a FdInputStream, because we need to call was_simple_received, even if we were
+// reading from the fd directly and not using was_simple_read.
+class WasInputStream : public InputStream {
+	WasSimple &was;
+
+public:
+	WasInputStream(WasSimple &was) : was(was) {}
+
+	size_t Read(std::span<char> dest) override
+	{
+		// We want to do a blocking read, so we use was_simpe_read
+		const auto n = was_simple_read(was, dest.data(), dest.size());
+		if (n == -2) {
+			throw std::runtime_error("Error in was_simple_read");
+		}
+		if (n == -1) {
+			throw std::system_error(errno, std::system_category());
+		}
+		assert(n > 0);
+		return static_cast<size_t>(n);
+	}
+};
+
 bool
 handle_request(RequestHandler &handler, WasSimple &was) noexcept
 {
@@ -134,19 +157,7 @@ handle_request(RequestHandler &handler, WasSimple &was) noexcept
 	was_simple_iterator_free(it);
 
 	if (was_simple_has_body(was)) {
-		// TODO: Use outpt buffer
-		std::string body;
-		std::array<char, 1024> read_buf;
-		ssize_t res = 0;
-		while ((res = was_simple_read(was, read_buf.data(), read_buf.size())) > 0) {
-			body.append(read_buf.data(), read_buf.size());
-		}
-		if (res < 0) {
-			// TODO
-			fmt::print(stderr, "Error in was_simple_read: {}, errno: {}\n", res, errno);
-			return false;
-		}
-		request.body = std::make_unique<StringInputStream>(std::move(body));
+		request.body = std::make_unique<WasInputStream>(was);
 	}
 
 	HttpResponse response;
