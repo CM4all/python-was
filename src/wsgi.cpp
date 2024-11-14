@@ -16,9 +16,7 @@
 namespace {
 
 struct WsgiInputStream {
-	// clang-format off
-	PyObject_HEAD;
-	// clang-format on
+	PyObject ob_base;
 
 	InputStream *stream; // This is an owning pointer, but this type needs to be POD
 
@@ -42,9 +40,27 @@ WsgiInputStream::read(PyObject *self, PyObject *args)
 	if (!PyArg_ParseTuple(args, "|L", &size)) {
 		Py::rethrow_python_exception();
 	}
-	const auto opt_size = size >= 0 ? std::optional<size_t>(static_cast<size_t>(size)) : std::nullopt;
+
+	if (size == 0) {
+		return Py::to_bytes("").release();
+	}
+
 	auto stream = reinterpret_cast<WsgiInputStream *>(self)->stream;
-	return Py::to_bytes(stream->Read(opt_size)).release();
+
+	if (size > 0) {
+		std::string buf(size, '\0');
+		buf.resize(stream->Read(buf));
+		return Py::to_bytes(buf).release();
+	}
+
+	assert(size < 0);
+	std::array<char, 4096> read_buf;
+	std::string ret;
+	size_t n = 0;
+	while ((n = stream->Read(read_buf)) > 0) {
+		ret.append(std::string_view(read_buf.data(), n));
+	}
+	return Py::to_bytes(ret).release();
 }
 
 PyObject *

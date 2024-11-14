@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -11,12 +12,14 @@
 
 struct InputStream {
 	virtual ~InputStream() = default;
-	// Read up to size bytes, size=nullopt reads until EOF
-	virtual std::string_view Read(std::optional<size_t> size) = 0;
+	// Read up to `size` bytes, size=nullopt reads until EOF or dest.siz()
+	// returns number of bytes read, 0 on EOF
+	// Throws on error
+	virtual size_t Read(std::span<char> dest) = 0;
 };
 
 struct NullInputStream : public InputStream {
-	std::string_view Read(std::optional<size_t>) override { return {}; }
+	size_t Read(std::span<char>) override { return 0; }
 };
 
 class StringInputStream : public InputStream {
@@ -26,12 +29,13 @@ class StringInputStream : public InputStream {
 public:
 	StringInputStream(std::string str) : data(std::move(str)) {}
 
-	std::string_view Read(std::optional<size_t> size) override
+	size_t Read(std::span<char> dest) override
 	{
-		if (size) {
-			return std::string_view(data).substr(cursor, *size);
-		}
-		return std::string_view(data).substr(cursor);
+		const auto to_read = std::min(data.size() - cursor, dest.size());
+		const auto begin = data.begin() + cursor;
+		std::copy(begin, begin + to_read, dest.begin());
+		cursor += to_read;
+		return to_read;
 	}
 };
 
