@@ -123,7 +123,11 @@ main(int argc, char **argv)
 		// PyRun_SimpleString("import os; print('os.cwd', os.getcwd(), file=sys.stderr)");
 		// PyRun_SimpleString("import os; print('os.environ', os.environ, file=sys.stderr)");
 
-		WsgiRequestHandler wsgi(args.module, args.app);
+		const auto module_name = args.module ? std::optional<std::string>(*args.module) : std::nullopt;
+		const auto app_name = args.app ? std::optional<std::string>(*args.app) : std::nullopt;
+		auto app = WsgiRequestHandler::FindApp(module_name, app_name);
+
+		WsgiRequestHandler wsgi(std::move(app));
 
 		if (::isatty(0)) {
 			request(wsgi, HTTP_METHOD_GET, "/", "", "");

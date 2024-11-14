@@ -4,7 +4,9 @@
 
 #include <stdexcept>
 
+#include "cpython/genobject.h"
 #include "http.hxx"
+#include "object.h"
 #include "python.hxx"
 
 #include "http/status.h"
@@ -212,53 +214,73 @@ TranslateHeader(std::string_view header_name) noexcept
 
 }
 
-WsgiRequestHandler::WsgiRequestHandler(std::optional<std::string_view> module_name,
-				       std::optional<std::string_view> app_name)
+Py::Object
+WsgiRequestHandler::FindApp(std::optional<std::string> module_name, std::optional<std::string> app_name)
 {
-	/* Flask applicatio discovery behavior
+	/* Flask application discovery behavior:
 	   no arguments: The name “app” or “wsgi” is imported (as a “.py” file, or package), automatically detecting
 		an app (app or application) or factory (create_app or make_app).
 	   --app <name>: The given name is imported, automatically detecting an app (app or application) or factory
 		(create_app or make_app).
 	 */
 
+	const std::vector<std::string> module_fallback = { "app", "wsgi" };
+	const std::vector<std::string> app_fallback = { "app", "application" };
+
+	Py::Object module;
 	if (module_name) {
 		module = Py::import(*module_name);
 		if (!module) {
 			Py::rethrow_python_exception();
 		}
-	} else {
-		module = Py::import("app");
-		if (!module) {
-			PyErr_Clear();
-			module = Py::import("wsgi");
-		}
-		if (!module) {
-			throw std::runtime_error("Could not import module 'app' or 'wsgi'");
+	}
+
+	if (!module) {
+		for (const auto &name : module_fallback) {
+			module = Py::import(name);
+			if (!module) {
+				PyErr_Clear();
+			} else {
+				break;
+			}
 		}
 	}
-	assert(module);
 
+	if (!module) {
+		throw std::runtime_error("Could not import module 'app' or 'wsgi'");
+	}
+
+	Py::Object app;
 	if (app_name) {
-		const auto app_name_s = std::string(*app_name);
-		app = Py::wrap(PyObject_GetAttrString(module, app_name_s.c_str()));
+		app = Py::wrap(PyObject_GetAttrString(module, app_name->c_str()));
 		if (!app) {
 			throw std::runtime_error(fmt::format("Could not find object '{}' in module", *app_name));
 		}
-	} else {
-		app = Py::wrap(PyObject_GetAttrString(module, "app"));
-		if (!app) {
-			app = Py::wrap(PyObject_GetAttrString(module, "application"));
-		}
-		if (!app) {
-			throw std::runtime_error("Could not find object 'app' or 'application' in module");
+	}
+
+	if (!app) {
+		for (const auto &name : app_fallback) {
+			app = Py::wrap(PyObject_GetAttrString(module, name.c_str()));
+			if (!app || !PyCallable_Check(app)) {
+				PyErr_Clear();
+			} else {
+				break;
+			}
 		}
 	}
 
-	if (!PyCallable_Check(app)) {
-		throw std::runtime_error("Application is not a callable");
+	if (!app) {
+		throw std::runtime_error("Could not find object 'app' or 'application' in module");
 	}
+
+	if (PyCoro_CheckExact(app)) {
+		throw std::runtime_error("Application is a coroutine. ASGI is not supported yet.");
+	}
+
+	return app;
 }
+
+WsgiRequestHandler::WsgiRequestHandler(Py::Object app) : app(std::move(app)) {}
 
 void
 WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
