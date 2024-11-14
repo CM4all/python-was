@@ -1,17 +1,17 @@
-#include <string_view>
-#include <vector>
 #include <optional>
 #include <span>
+#include <string_view>
+#include <vector>
 
+#include "http.hxx"
 #include "python.hxx"
 #include "wsgi.hxx"
-#include "http.hxx"
 
 #include <fmt/core.h>
 #include <unistd.h>
 
-#include <was/simple.h>
 #include <util/NumberParser.hxx>
+#include <was/simple.h>
 
 struct CommandLine {
 	std::vector<std::string_view> sys_path;
@@ -20,12 +20,9 @@ struct CommandLine {
 	std::optional<std::string_view> host;
 	std::optional<uint16_t> port;
 
-	void usage()
-	{
-		fmt::print("py-gi-bridge [--host <ip>] [--port <port>] [--module <module>] [--app <app>]\n");
-	}
+	void usage() { fmt::print("py-gi-bridge [--host <ip>] [--port <port>] [--module <module>] [--app <app>]\n"); }
 
-	std::string_view get_arg(std::span<const std::string_view> args, size_t& i)
+	std::string_view get_arg(std::span<const std::string_view> args, size_t &i)
 	{
 		i++;
 		if (i >= args.size()) {
@@ -39,8 +36,7 @@ struct CommandLine {
 	CommandLine(int argc, char **argv)
 	{
 		std::vector<std::string_view> args(argv + 1, argv + argc);
-		for (size_t i = 0; i < args.size(); ++i)
-		{
+		for (size_t i = 0; i < args.size(); ++i) {
 			if (args[i] == "--module") {
 				module = get_arg(args, i);
 			} else if (args[i] == "--app") {
@@ -64,16 +60,17 @@ struct CommandLine {
 	}
 };
 
-HttpRequest request(http_method_t method, std::string_view uri, std::string_view content_type, std::string body)
+HttpRequest
+request(http_method_t method, std::string_view uri, std::string_view content_type, std::string body)
 {
-	HttpRequest header {
+	HttpRequest header{
 		.script_name = "",
 		.protocol = "HTTP/1.1",
 		.scheme = "http",
 		.method = method,
 		.uri = Uri::split(uri),
 		.headers = {},
-		.body={}
+		.body = {},
 	};
 	if (!body.empty()) {
 		const auto content_length = body.size();
@@ -85,23 +82,25 @@ HttpRequest request(http_method_t method, std::string_view uri, std::string_view
 }
 
 struct WasSimple {
-	struct was_simple* was;
+	struct was_simple *was;
 
 	WasSimple() : was(was_simple_new()) {}
 	~WasSimple() { was_simple_free(was); }
-	operator struct was_simple*() const { return was; }
+	operator struct was_simple *() const { return was; }
 };
 
-void print_response(const HttpResponse& resp)
+void
+print_response(const HttpResponse &resp) noexcept
 {
 	fmt::print(stderr, "STATUS {}\n", resp.status);
-	for (const auto& [name, value] : resp.headers) {
+	for (const auto &[name, value] : resp.headers) {
 		fmt::print(stderr, "{}: {}\n", name, value);
 	}
 	fmt::print(stderr, "{}\n", resp.body);
 }
 
-bool handle_request(RequestHandler& handler, WasSimple& was)
+bool
+handle_request(RequestHandler &handler, WasSimple &was) noexcept
 {
 	fmt::print(stderr, "Got was request\n");
 
@@ -115,20 +114,21 @@ bool handle_request(RequestHandler& handler, WasSimple& was)
 	const auto path = was_simple_get_path_info(was);
 	const auto query = was_simple_get_query_string(was);
 
-	HttpRequest request {
+	HttpRequest request{
 		.script_name = script_name ? script_name : "",
 		.protocol = "HTTP/1.1", // TODO
-		.scheme = "http", // TODO
+		.scheme = "http",	// TODO
 		.method = method,
-		.uri = Uri {
+		.uri =
+		    Uri{
 			.path = path ? path : "/",
-			.query = query ? query : ""
-		},
+			.query = query ? query : "",
+		    },
 	};
 
 	auto it = was_simple_get_header_iterator(was);
-	const was_simple_pair* elem;
-	while((elem = was_simple_iterator_next(it))) {
+	const was_simple_pair *elem;
+	while ((elem = was_simple_iterator_next(it))) {
 		request.headers.emplace_back(elem->name, elem->value);
 	}
 	was_simple_iterator_free(it);
@@ -138,7 +138,7 @@ bool handle_request(RequestHandler& handler, WasSimple& was)
 		std::string body;
 		std::array<char, 1024> read_buf;
 		ssize_t res = 0;
-		while((res = was_simple_read(was, read_buf.data(), read_buf.size())) > 0) {
+		while ((res = was_simple_read(was, read_buf.data(), read_buf.size())) > 0) {
 			body.append(read_buf.data(), read_buf.size());
 		}
 		if (res < 0) {
@@ -152,7 +152,7 @@ bool handle_request(RequestHandler& handler, WasSimple& was)
 	HttpResponse response;
 	try {
 		response = handler.OnRequest(std::move(request));
-	} catch(std::exception& exc) {
+	} catch (std::exception &exc) {
 		// TODO
 		fmt::print(stderr, "Exception in OnRequest");
 		return false;
@@ -170,7 +170,7 @@ bool handle_request(RequestHandler& handler, WasSimple& was)
 		return false;
 	}
 
-	for (const auto& [name, value] : response.headers) {
+	for (const auto &[name, value] : response.headers) {
 		if (HeaderMatch(name, "Content-Length")) {
 			continue;
 		}
@@ -199,7 +199,8 @@ bool handle_request(RequestHandler& handler, WasSimple& was)
 	return true;
 }
 
-int main(int argc, char **argv)
+int
+main(int argc, char **argv)
 {
 	try {
 		fmt::print(stderr, "cwd: {}\n", ::get_current_dir_name());
@@ -208,27 +209,28 @@ int main(int argc, char **argv)
 		// If you are in a virtual environment, <venv>/bin should be in PATH.
 		// Python will try to find python3 in PATH and if it finds ../pyvenv.cfg next to python3, it will add
 		// the corresponding site-packages of the venv to the sys.path.
-		// So simply activating a venv should make this work. If it doesn't just add <venv>/lib/pythonX.YY/site-packages to sys.path.
+		// So simply activating a venv should make this work. If it doesn't just add
+		// <venv>/lib/pythonX.YY/site-packages to sys.path.
 		// FIXME: stand-alone app.py does work, but in runwas it does not (probably something with env)
 		Py::add_sys_path(".");
 		// FIXME: runwas doesn't forward env, so add it
 		Py::add_sys_path("/home/joel/dev/py_gi_bridge/.venv/lib/python3.11/site-packages");
-		//PyRun_SimpleString("import sys; print('sys.path', sys.path, file=sys.stderr)");
-		//PyRun_SimpleString("import os; print('os.cwd', os.getcwd(), file=sys.stderr)");
-		//PyRun_SimpleString("import os; print('os.environ', os.environ, file=sys.stderr)");
+		// PyRun_SimpleString("import sys; print('sys.path', sys.path, file=sys.stderr)");
+		// PyRun_SimpleString("import os; print('os.cwd', os.getcwd(), file=sys.stderr)");
+		// PyRun_SimpleString("import os; print('os.environ', os.environ, file=sys.stderr)");
 
 		WsgiRequestHandler wsgi(args.module, args.app);
 
 		if (::isatty(0)) {
 			print_response(wsgi.OnRequest(request(HTTP_METHOD_GET, "/", "", "")));
-			print_response(wsgi.OnRequest(request(HTTP_METHOD_PUT, "/",
-				"application/json", R"({"key": "value"})")));
+			print_response(
+			    wsgi.OnRequest(request(HTTP_METHOD_PUT, "/", "application/json", R"({"key": "value"})")));
 			return 0;
 		}
 
 		fmt::print(stderr, "Starting in WAS mode\n");
 		WasSimple was;
-		const char* url = nullptr;
+		const char *url = nullptr;
 		while ((url = was_simple_accept(was))) {
 			fmt::print(stderr, "accept '{}'\n", url);
 			if (handle_request(wsgi, was)) {
@@ -245,10 +247,10 @@ int main(int argc, char **argv)
 		}
 
 		return 0;
-	} catch(const Py::Error& exc) {
+	} catch (const Py::Error &exc) {
 		fmt::print(stderr, "Python Exception: {}\n", exc.what());
 		return 1;
-	} catch(const std::runtime_error& exc) {
+	} catch (const std::runtime_error &exc) {
 		fmt::print(stderr, "{}\n", exc.what());
 		return 1;
 	}

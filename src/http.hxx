@@ -1,9 +1,9 @@
 #pragma once
 
-#include <vector>
-#include <string>
-#include <optional>
 #include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 
 #include <http/method.h>
 #include <http/status.h>
@@ -16,10 +16,7 @@ struct InputStream {
 };
 
 struct NullInputStream : public InputStream {
-	std::string_view Read(std::optional<size_t>) override
-	{
-		return {};
-	}
+	std::string_view Read(std::optional<size_t>) override { return {}; }
 };
 
 class StringInputStream : public InputStream {
@@ -42,20 +39,22 @@ struct Uri {
 	std::string_view path;
 	std::string_view query;
 
-	static Uri split(std::string_view uri) {
+	[[gnu::pure]] static Uri split(std::string_view uri) noexcept
+	{
 		const auto q = uri.find('?');
 		const auto path = uri.substr(0, q);
 		const auto query = q == std::string_view::npos ? std::string_view{} : uri.substr(q);
-		return Uri { .path = path, .query = query };
+		return Uri{ .path = path, .query = query };
 	}
 };
 
-inline bool HeaderMatch(std::string_view a, std::string_view b) {
+[[gnu::pure]] inline bool
+HeaderMatch(std::string_view a, std::string_view b) noexcept
+{
 	if (a.empty() || a.size() != b.size()) {
 		return false;
 	}
-	for (size_t i = 0; i < a.size(); ++i)
-	{
+	for (size_t i = 0; i < a.size(); ++i) {
 		if (ToLowerASCII(a[i]) != ToLowerASCII(b[i])) {
 			return false;
 		}
@@ -66,18 +65,15 @@ inline bool HeaderMatch(std::string_view a, std::string_view b) {
 struct HttpRequest {
 	std::string script_name;
 	std::string protocol; // e.g. HTTP/1.1
-	std::string scheme; // TODO: probably hardcode this to 'http'
+	std::string scheme;   // TODO: probably hardcode this to 'http'
 	http_method_t method;
 	Uri uri;
 	std::vector<std::pair<std::string, std::string>> headers;
 	std::unique_ptr<InputStream> body;
 
-
-
-	std::optional<std::string_view> FindHeader(std::string_view header_name) const
+	std::optional<std::string_view> FindHeader(std::string_view header_name) const noexcept
 	{
-		for (const auto& [name, value] : headers)
-		{
+		for (const auto &[name, value] : headers) {
 			if (HeaderMatch(name, header_name)) {
 				return value;
 			}
@@ -94,5 +90,5 @@ struct HttpResponse {
 
 struct RequestHandler {
 	virtual ~RequestHandler() = default;
-	virtual HttpResponse OnRequest(HttpRequest&& req) = 0;
+	virtual HttpResponse OnRequest(HttpRequest &&req) = 0;
 };

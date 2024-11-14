@@ -4,22 +4,26 @@
 
 namespace Py {
 
-Object wrap(PyObject* obj)
+Object
+wrap(PyObject *obj) noexcept
 {
 	return Object(obj);
 }
 
-Object to_pyunicode(std::string_view str)
+Object
+to_pyunicode(std::string_view str) noexcept
 {
 	return wrap(PyUnicode_FromStringAndSize(str.data(), str.size()));
 }
 
-Object to_bytes(std::string_view str)
+Object
+to_bytes(std::string_view str) noexcept
 {
 	return wrap(PyBytes_FromStringAndSize(str.data(), str.size()));
 }
 
-std::string_view to_string_view(PyObject* obj)
+std::string_view
+to_string_view(PyObject *obj) noexcept
 {
 	if (PyBytes_Check(obj)) {
 		return std::string_view(PyBytes_AsString(obj), PyBytes_Size(obj));
@@ -29,7 +33,8 @@ std::string_view to_string_view(PyObject* obj)
 	return std::string_view(data, size);
 }
 
-std::string get_type(PyObject* obj)
+std::string
+get_type(PyObject *obj)
 {
 	if (!obj) {
 		return "nullptr";
@@ -48,7 +53,8 @@ std::string get_type(PyObject* obj)
 	return std::string(to_string_view(type_str));
 }
 
-void rethrow_python_exception()
+void
+rethrow_python_exception()
 {
 	if (PyErr_Occurred()) {
 		Object type, value, traceback;
@@ -69,7 +75,8 @@ void rethrow_python_exception()
 	throw Error("No Python exception set");
 }
 
-void add_sys_path(std::string_view path)
+void
+add_sys_path(std::string_view path)
 {
 	auto sys_path = PySys_GetObject("path"); // borrowed reference
 	if (!sys_path || !PyList_Check(sys_path)) {
@@ -86,7 +93,9 @@ void add_sys_path(std::string_view path)
 	}
 }
 
-Object import(std::string_view module_name) {
+Object
+import(std::string_view module_name) noexcept
+{
 	auto py_name = wrap(PyUnicode_DecodeFSDefaultAndSize(module_name.data(), module_name.size()));
 	return wrap(PyImport_Import(py_name));
 }

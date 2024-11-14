@@ -1,0 +1,18 @@
+BasedOnStyle: Mozilla # one true brace style, no indent in namespaces
+Standard: c++20
+ColumnLimit: 120
+IndentWidth: 8
+BreakBeforeBraces: WebKit
+TabWidth: 8
+UseTab: Always
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortEnumsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortLambdasOnASingleLine: All
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowAllArgumentsOnNextLine: true
+PackConstructorInitializers: CurrentLine
+AccessModifierOffset: -8
+PointerAlignment: Right
+ContinuationIndentWidth: 4
