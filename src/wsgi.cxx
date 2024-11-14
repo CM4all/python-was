@@ -42,7 +42,7 @@ WsgiInputStream::read(PyObject *self, PyObject *args)
 	}
 
 	if (size == 0) {
-		return Py::to_bytes("").release();
+		return Py::to_bytes("").Release();
 	}
 
 	auto stream = reinterpret_cast<WsgiInputStream *>(self)->stream;
@@ -50,7 +50,7 @@ WsgiInputStream::read(PyObject *self, PyObject *args)
 	if (size > 0) {
 		std::string buf(size, '\0');
 		buf.resize(stream->Read(buf));
-		return Py::to_bytes(buf).release();
+		return Py::to_bytes(buf).Release();
 	}
 
 	assert(size < 0);
@@ -60,7 +60,7 @@ WsgiInputStream::read(PyObject *self, PyObject *args)
 	while ((n = stream->Read(read_buf)) > 0) {
 		ret.append(std::string_view(read_buf.data(), n));
 	}
-	return Py::to_bytes(ret).release();
+	return Py::to_bytes(ret).Release();
 }
 
 PyObject *

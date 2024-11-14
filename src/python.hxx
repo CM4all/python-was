@@ -27,28 +27,22 @@ public:
 
 	Object &operator=(Object &&other)
 	{
-		reset(std::exchange(other.object, nullptr));
+		Reset(std::exchange(other.object, nullptr));
 		return *this;
 	}
 
 	Object &operator=(PyObject *obj)
 	{
-		reset(obj);
+		Reset(obj);
 		return *this;
 	}
 
 	operator PyObject *() const { return object; }
 	PyObject **operator&() { return &object; }
 	explicit operator bool() const { return object != nullptr; }
-	PyObject *release() { return std::exchange(object, nullptr); }
+	PyObject *Release() { return std::exchange(object, nullptr); }
 
-	PyObject *borrow()
-	{
-		Py_XINCREF(object);
-		return Object(object);
-	}
-
-	void reset(PyObject *obj)
+	void Reset(PyObject *obj)
 	{
 		Py_XDECREF(object);
 		object = obj;
