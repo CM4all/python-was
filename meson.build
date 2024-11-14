@@ -35,10 +35,11 @@ subdir('libcommon/src/io')
 subdir('libcommon/src/was')
 
 executable('py-gi-bridge',
-  'src/main.cpp',
-  'src/python.cpp',
-  'src/wsgi.cpp',
   'src/http.cxx',
+  'src/main.cxx',
+  'src/python.cxx',
+  'src/was.cxx',
+  'src/wsgi.cxx',
   dependencies : [
     fmt_dep,
     python_dep,
