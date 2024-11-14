@@ -38,6 +38,7 @@ executable('py-gi-bridge',
   'src/main.cpp',
   'src/python.cpp',
   'src/wsgi.cpp',
+  'src/http.cxx',
   dependencies : [
     fmt_dep,
     python_dep,

@@ -4,6 +4,8 @@
 #include <vector>
 
 #include "http.hxx"
+#include "http/header.h"
+#include "http/status.h"
 #include "python.hxx"
 #include "wsgi.hxx"
 
@@ -60,10 +62,23 @@ struct CommandLine {
 	}
 };
 
-HttpRequest
-request(http_method_t method, std::string_view uri, std::string_view content_type, std::string body)
+void
+print_response(const HttpResponse &resp) noexcept
 {
-	HttpRequest header{
+	fmt::print(stderr, "STATUS {}\n", resp.status);
+	for (const auto &[name, value] : resp.headers) {
+		fmt::print(stderr, "{}: {}\n", name, value);
+	}
+}
+
+void
+request(RequestHandler &handler,
+	http_method_t method,
+	std::string_view uri,
+	std::string_view content_type,
+	std::string request_body)
+{
+	HttpRequest request{
 		.script_name = "",
 		.protocol = "HTTP/1.1",
 		.scheme = "http",
@@ -72,13 +87,22 @@ request(http_method_t method, std::string_view uri, std::string_view content_typ
 		.headers = {},
 		.body = {},
 	};
-	if (!body.empty()) {
-		const auto content_length = body.size();
-		header.body = std::make_unique<StringInputStream>(std::move(body));
-		header.headers.emplace_back("Content-Type", content_type);
-		header.headers.emplace_back("Content-Length", std::to_string(content_length));
+
+	if (!request_body.empty()) {
+		const auto content_length = request_body.size();
+		request.body = std::make_unique<StringInputStream>(std::move(request_body));
+		request.headers.emplace_back("Content-Type", content_type);
+		request.headers.emplace_back("Content-Length", std::to_string(content_length));
 	}
-	return header;
+
+	struct PrintResponder : public HttpResponder {
+		void SendHeaders(HttpResponse &&response) override { print_response(response); }
+		void SendBody(std::string_view body_data) override { fmt::print("{}", body_data); }
+	};
+
+	PrintResponder responder;
+	handler.Process(std::move(request), responder);
+	fmt::print("\n");
 }
 
 struct WasSimple {
@@ -87,17 +111,21 @@ struct WasSimple {
 	WasSimple() : was(was_simple_new()) {}
 	~WasSimple() { was_simple_free(was); }
 	operator struct was_simple *() const { return was; }
-};
 
-void
-print_response(const HttpResponse &resp) noexcept
-{
-	fmt::print(stderr, "STATUS {}\n", resp.status);
-	for (const auto &[name, value] : resp.headers) {
-		fmt::print(stderr, "{}: {}\n", name, value);
+	void EndRequest()
+	{
+		if (!was_simple_end(was)) {
+			fmt::print(stderr, "Error in was_simple_end\n");
+		}
 	}
-	fmt::print(stderr, "{}\n", resp.body);
-}
+
+	void AbortRequest()
+	{
+		if (!was_simple_abort(was)) {
+			fmt::print(stderr, "Error in was_simple_abort\n");
+		}
+	}
+};
 
 // This is a WasInputStream as opposed to a FdInputStream, because we need to call was_simple_received, even if we were
 // reading from the fd directly and not using was_simple_read.
@@ -122,20 +150,106 @@ public:
 	}
 };
 
-bool
-handle_request(RequestHandler &handler, WasSimple &was) noexcept
-{
-	fmt::print(stderr, "Got was request\n");
+// You must create a separate object for each request!
+struct WasResponder : public HttpResponder {
+	WasSimple &was;
+	bool chunked_transfer = false;
+	size_t content_length_left = 0;
 
+	WasResponder(WasSimple &was) : was(was) {}
+
+	void SendHeaders(HttpResponse &&response) override
+	{
+		if (!http_status_is_valid(response.status)) {
+			throw std::runtime_error(fmt::format("Invalid HTTP response status: {}", response.status));
+		}
+
+		if (!was_simple_status(was, response.status)) {
+			throw std::runtime_error("Error in was_simple_status");
+		}
+
+		std::optional<std::string_view> transfer_encoding_header;
+		std::optional<std::string_view> content_length_header;
+
+		for (const auto &[name, value] : response.headers) {
+			if (HeaderMatch(name, "Content-Length")) {
+				content_length_header = value;
+				continue;
+			}
+			if (HeaderMatch(name, "Transfer-Encoding")) { // this is hop-by-hop
+				transfer_encoding_header = value;
+			}
+			if (http_header_is_hop_by_hop(name.c_str())) {
+				continue;
+			}
+			if (!was_simple_set_header_n(was, name.data(), name.size(), value.data(), value.size())) {
+				throw std::runtime_error("was_simple_set_header_n failed");
+			}
+		}
+
+		// TODO: Figure out how this is actually done in Flask
+		const auto chunked_transfer =
+		    transfer_encoding_header && transfer_encoding_header->find("chunked") != std::string_view::npos;
+
+		if (content_length_header) {
+			const auto num = ParseInteger<uint64_t>(*content_length_header);
+			if (!num) {
+				throw std::runtime_error(fmt::format(
+				    "Could not parse Content-Length response header: '{}'", *content_length_header));
+			}
+			content_length_left = *num;
+		}
+
+		assert(!chunked_transfer); // TODO!
+
+		if (content_length_left == 0) {
+			was.EndRequest();
+		} else {
+			// This should be done early, but the state won't match if I do it any earlier than here
+			if (!was_simple_set_length(was, content_length_left)) {
+				was.EndRequest();
+				throw std::runtime_error("was_simple_set_length failed");
+			}
+		}
+
+		headers_sent = true;
+	}
+
+	// Needs to be called before SendHeaders
+	void SendBody(std::string_view body_data) override
+	{
+		assert(headers_sent);
+
+		if (body_data.size() > content_length_left) {
+			throw std::runtime_error(
+			    fmt::format("Attempting to send {} bytes, but only {} bytes left to sent",
+					body_data.size(),
+					content_length_left));
+		}
+
+		if (!was_simple_write(was, body_data.data(), body_data.size())) {
+			throw std::runtime_error("was_simple_write failed");
+		}
+	}
+};
+
+void
+handle_request(RequestHandler &handler, WasSimple &was, std::string_view uri) noexcept
+{
 	const auto method = was_simple_get_method(was);
 	if (method == HTTP_METHOD_INVALID) {
-		// TODO
-		fmt::print(stderr, "Invalid method\n");
-		return false;
+		fmt::print(stderr, "Invalid method: {}\n", method);
+		if (!was_simple_status(was, HTTP_STATUS_METHOD_NOT_ALLOWED)) {
+			fmt::print(stderr, "Error in was_simple_status\n");
+		}
+		was.EndRequest();
+		return;
 	}
+
 	const auto script_name = was_simple_get_script_name(was);
 	const auto path = was_simple_get_path_info(was);
 	const auto query = was_simple_get_query_string(was);
+	const auto parsed_uri = Uri::split(uri);
 
 	HttpRequest request{
 		.script_name = script_name ? script_name : "",
@@ -144,8 +258,8 @@ handle_request(RequestHandler &handler, WasSimple &was) noexcept
 		.method = method,
 		.uri =
 		    Uri{
-			.path = path ? path : "/",
-			.query = query ? query : "",
+			.path = path ? path : parsed_uri.path,
+			.query = query ? query : parsed_uri.query,
 		    },
 	};
 
@@ -160,54 +274,27 @@ handle_request(RequestHandler &handler, WasSimple &was) noexcept
 		request.body = std::make_unique<WasInputStream>(was);
 	}
 
-	HttpResponse response;
+	WasResponder responder{ was };
 	try {
-		response = handler.OnRequest(std::move(request));
+		handler.Process(std::move(request), responder);
 	} catch (std::exception &exc) {
-		// TODO
-		fmt::print(stderr, "Exception in OnRequest");
-		return false;
+		// If was_simple_status, was_simple_set_header, etc. fail, the cause was likely an IO on the
+		// command channel, in which case it doesn't make sense to do anything else and we will
+		// likely terminate soon.
+		// Abort will not do anything if the state is ERROR, EndRequest will discard input and flush the control
+		// channel, so EndRequest would make more sense, but we don't know when exactly we failed, so I abort
+		// for now.
+		// TODO: Ask Max how to deal with this properly.
+		fmt::print(stderr, "Exception handling request: {}\n", exc.what());
+		was.AbortRequest();
+		return;
 	}
 
-	if (!http_status_is_valid(response.status)) {
-		// TODO
-		fmt::print(stderr, "Invalid status: {}\n", response.status);
-		return false;
+	// Either this is a programming error, or an IO error and in both cases we can't do
+	// much more than log and proceed to the next request.
+	if (!was_simple_end(was)) {
+		fmt::print(stderr, "Error in was_simple_end\n");
 	}
-
-	if (!was_simple_status(was, response.status)) {
-		// TODO
-		fmt::print(stderr, "was_simple_status failed\n");
-		return false;
-	}
-
-	for (const auto &[name, value] : response.headers) {
-		if (HeaderMatch(name, "Content-Length")) {
-			continue;
-		}
-		fmt::print(stderr, "{}: {}\n", name, value);
-		if (!was_simple_set_header_n(was, name.data(), name.size(), value.data(), value.size())) {
-			// TODO
-			fmt::print(stderr, "was_simple_set_header_n failed\n");
-			return false;
-		}
-	}
-
-	// This should be done early, but the state won't match if I do it any earlier than here
-	if (!response.body.empty()) {
-		if (!was_simple_set_length(was, response.body.size())) {
-			// TODO
-			fmt::print(stderr, "was_simple_set_length failed\n");
-			return false;
-		}
-	}
-
-	if (!was_simple_write(was, response.body.data(), response.body.size())) {
-		fmt::print(stderr, "was_simple_write failed\n");
-		return false;
-	}
-
-	return true;
 }
 
 int
@@ -233,9 +320,8 @@ main(int argc, char **argv)
 		WsgiRequestHandler wsgi(args.module, args.app);
 
 		if (::isatty(0)) {
-			print_response(wsgi.OnRequest(request(HTTP_METHOD_GET, "/", "", "")));
-			print_response(
-			    wsgi.OnRequest(request(HTTP_METHOD_PUT, "/", "application/json", R"({"key": "value"})")));
+			request(wsgi, HTTP_METHOD_GET, "/", "", "");
+			request(wsgi, HTTP_METHOD_PUT, "/", "application/json", R"({"key": "value"})");
 			return 0;
 		}
 
@@ -243,18 +329,7 @@ main(int argc, char **argv)
 		WasSimple was;
 		const char *url = nullptr;
 		while ((url = was_simple_accept(was))) {
-			fmt::print(stderr, "accept '{}'\n", url);
-			if (handle_request(wsgi, was)) {
-				if (!was_simple_end(was)) {
-					// TODO
-					fmt::print("Could not end request\n");
-				}
-			} else {
-				if (!was_simple_abort(was)) {
-					// TODO
-					fmt::print("Could not abort request\n");
-				}
-			}
+			handle_request(wsgi, was, url);
 		}
 
 		return 0;

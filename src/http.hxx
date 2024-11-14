@@ -8,7 +8,9 @@
 
 #include <http/method.h>
 #include <http/status.h>
-#include <util/CharUtil.hxx>
+
+// So far this whole Stream abstraction doesn't even make sense, but I hope it will make
+// moving to an async solution easier.
 
 struct InputStream {
 	virtual ~InputStream() = default;
@@ -29,42 +31,34 @@ class StringInputStream : public InputStream {
 public:
 	StringInputStream(std::string str) : data(std::move(str)) {}
 
-	size_t Read(std::span<char> dest) override
-	{
-		const auto to_read = std::min(data.size() - cursor, dest.size());
-		const auto begin = data.begin() + cursor;
-		std::copy(begin, begin + to_read, dest.begin());
-		cursor += to_read;
-		return to_read;
-	}
+	size_t Read(std::span<char> dest) override;
+};
+
+struct OutputStream {
+	virtual ~OutputStream() = default;
+	virtual bool Write(std::span<const char> src) = 0;
+};
+
+class StringOutputStream : public OutputStream {
+	std::string data_;
+
+public:
+	bool Write(std::span<const char> src) override;
+
+	operator std::string_view() const { return data_; }
+	const char *data() const { return data_.data(); }
+	size_t size() const { return data_.size(); }
 };
 
 struct Uri {
 	std::string_view path;
 	std::string_view query;
 
-	[[gnu::pure]] static Uri split(std::string_view uri) noexcept
-	{
-		const auto q = uri.find('?');
-		const auto path = uri.substr(0, q);
-		const auto query = q == std::string_view::npos ? std::string_view{} : uri.substr(q);
-		return Uri{ .path = path, .query = query };
-	}
+	[[gnu::pure]] static Uri split(std::string_view uri) noexcept;
 };
 
-[[gnu::pure]] inline bool
-HeaderMatch(std::string_view a, std::string_view b) noexcept
-{
-	if (a.empty() || a.size() != b.size()) {
-		return false;
-	}
-	for (size_t i = 0; i < a.size(); ++i) {
-		if (ToLowerASCII(a[i]) != ToLowerASCII(b[i])) {
-			return false;
-		}
-	}
-	return true;
-}
+[[gnu::pure]] bool
+HeaderMatch(std::string_view a, std::string_view b) noexcept;
 
 struct HttpRequest {
 	std::string script_name;
@@ -75,24 +69,23 @@ struct HttpRequest {
 	std::vector<std::pair<std::string, std::string>> headers;
 	std::unique_ptr<InputStream> body;
 
-	std::optional<std::string_view> FindHeader(std::string_view header_name) const noexcept
-	{
-		for (const auto &[name, value] : headers) {
-			if (HeaderMatch(name, header_name)) {
-				return value;
-			}
-		}
-		return std::nullopt;
-	}
+	std::optional<std::string_view> FindHeader(std::string_view header_name) const noexcept;
 };
 
 struct HttpResponse {
 	http_status_t status;
 	std::vector<std::pair<std::string, std::string>> headers;
-	std::string body;
+};
+
+struct HttpResponder {
+	virtual void SendHeaders(HttpResponse &&response) = 0;
+	virtual void SendBody(std::string_view body_data) = 0;
+	bool HeadersSent() const { return headers_sent; }
+
+protected:
+	bool headers_sent = false;
 };
 
 struct RequestHandler {
-	virtual ~RequestHandler() = default;
-	virtual HttpResponse OnRequest(HttpRequest &&req) = 0;
+	virtual void Process(HttpRequest &&request, HttpResponder &responder) = 0;
 };

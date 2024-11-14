@@ -167,8 +167,8 @@ StartResponse(PyObject *self, PyObject *args)
 		Py::rethrow_python_exception();
 	}
 
-	auto response = static_cast<HttpResponse *>(PyCapsule_GetPointer(self, "HttpResponse"));
-	if (!response) {
+	auto responder = static_cast<HttpResponder *>(PyCapsule_GetPointer(self, "HttpResponder"));
+	if (!responder) {
 		throw std::runtime_error("Cannot call start_response after request is finished");
 	}
 
@@ -177,7 +177,8 @@ StartResponse(PyObject *self, PyObject *args)
 	if (!status_code) {
 		throw std::runtime_error(fmt::format("Could not parse status code: '{}'", status_str));
 	}
-	response->status = static_cast<http_status_t>(*status_code);
+	HttpResponse response;
+	response.status = static_cast<http_status_t>(*status_code);
 
 	const auto len = PyList_Size(headers);
 	for (std::remove_const_t<decltype(len)> i = 0; i < len; i++) {
@@ -186,9 +187,11 @@ StartResponse(PyObject *self, PyObject *args)
 		if (item) {
 			const auto name = Py::to_string_view(PyTuple_GetItem(item, 0));
 			const auto value = Py::to_string_view(PyTuple_GetItem(item, 1));
-			response->headers.emplace_back(name, value);
+			response.headers.emplace_back(name, value);
 		}
 	}
+
+	responder->SendHeaders(std::move(response));
 
 	Py_RETURN_NONE;
 }
@@ -257,8 +260,8 @@ WsgiRequestHandler::WsgiRequestHandler(std::optional<std::string_view> module_na
 	}
 }
 
-HttpResponse
-WsgiRequestHandler::OnRequest(HttpRequest &&req)
+void
+WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 {
 	auto environ = Py::wrap(PyDict_New());
 	if (!environ) {
@@ -299,13 +302,12 @@ WsgiRequestHandler::OnRequest(HttpRequest &&req)
 		Py::rethrow_python_exception();
 	}
 
-	HttpResponse response;
-	auto response_capsule = PyCapsule_New(&response, "HttpResponse", nullptr);
+	auto responder_capsule = PyCapsule_New(&responder, "HttpResponder", nullptr);
 
 	PyMethodDef start_response_def = {
 		"start_response", (PyCFunction)StartResponse, METH_VARARGS, "WSGI start_response"
 	};
-	auto start_response_callable = Py::wrap(PyCFunction_New(&start_response_def, response_capsule));
+	auto start_response_callable = Py::wrap(PyCFunction_New(&start_response_def, responder_capsule));
 	if (!start_response_callable) {
 		Py::rethrow_python_exception();
 	}
@@ -317,6 +319,10 @@ WsgiRequestHandler::OnRequest(HttpRequest &&req)
 		Py::rethrow_python_exception();
 	}
 
+	if (!responder.HeadersSent()) {
+		throw std::runtime_error("start_response needs to be called before WSGI application returns");
+	}
+
 	auto result_iterator = Py::wrap(PyObject_GetIter(result));
 	if (!result_iterator) {
 		Py::rethrow_python_exception();
@@ -326,20 +332,18 @@ WsgiRequestHandler::OnRequest(HttpRequest &&req)
 		if (PyErr_Occurred()) {
 			Py::rethrow_python_exception();
 		}
-		response.body.append(Py::to_string_view(item));
+		responder.SendBody(Py::to_string_view(item));
 	}
 
 	// A capsule must not store a nullptr, so SetPointer will fail with nullptr.
 	// Instead we change the name, so GetPointer will fail in StartResponse.
 	// We reset the capsule so in case the Python code kept a reference to start_response
 	// and called it after this function has finished, we do not get a use-after-free on `response`.
-	if (PyCapsule_SetName(response_capsule, nullptr)) {
+	if (PyCapsule_SetName(responder_capsule, nullptr)) {
 		Py::rethrow_python_exception();
 	}
 
 	if (PyErr_Occurred()) {
 		Py::rethrow_python_exception();
 	}
-
-	return response;
 }

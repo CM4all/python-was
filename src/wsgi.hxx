@@ -15,5 +15,5 @@ public:
 
 	WsgiRequestHandler(std::optional<std::string_view> module_name, std::optional<std::string_view> app_name);
 
-	virtual HttpResponse OnRequest(HttpRequest &&req) override;
+	virtual void Process(HttpRequest &&req, HttpResponder &responder) override;
 };
