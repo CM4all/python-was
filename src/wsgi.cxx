@@ -68,16 +68,14 @@ WsgiInputStream::read(PyObject *self, PyObject *args)
 PyObject *
 WsgiInputStream::readline(PyObject * /*self*/, PyObject * /*args*/)
 {
-	// TODO, not used by flask
-	fmt::print(stderr, "readline\n");
+	assert(false); // TODO: Implement this! Not used by flask
 	return Py_None;
 }
 
 PyObject *
 WsgiInputStream::readlines(PyObject * /*self*/, PyObject * /*args*/)
 {
-	// TODO, not used by flask
-	fmt::print(stderr, "readlines\n");
+	assert(false); // TODO: Implement this! Not used by flask
 	return Py_None;
 }
 
@@ -91,8 +89,7 @@ WsgiInputStream::iter(PyObject *self)
 PyObject *
 WsgiInputStream::next(PyObject * /*self*/)
 {
-	// TODO, not used by flask
-	fmt::print(stderr, "next\n");
+	assert(false); // TODO: Implement this! Not used by flask
 	return Py_None;
 }
 
