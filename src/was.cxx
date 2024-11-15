@@ -33,7 +33,7 @@ public:
 // You must create a separate object for each request!
 struct WasResponder : public HttpResponder {
 	struct was_simple *was;
-	size_t content_length_left = 0;
+	std::optional<uint64_t> content_length_left = 0;
 
 	WasResponder(struct was_simple *was) : was(was) {}
 
@@ -51,16 +51,15 @@ struct WasResponder : public HttpResponder {
 			}
 		}
 
-		// TODO: Maybe use chunked transfer without Content-Length?
-		content_length_left = response.content_length.value_or(0);
+		content_length_left = response.content_length;
 
-		if (content_length_left == 0) {
+		if (response.content_length == 0) {
 			if (!was_simple_end(was)) {
 				throw std::runtime_error("was_simple_end failed");
 			}
-		} else {
+		} else if (response.content_length) {
 			// This should be done early, but the state won't match if I do it any earlier than here
-			if (!was_simple_set_length(was, content_length_left)) {
+			if (!was_simple_set_length(was, *response.content_length)) {
 				throw std::runtime_error("was_simple_set_length failed");
 			}
 		}
@@ -73,15 +72,19 @@ struct WasResponder : public HttpResponder {
 	{
 		assert(headers_sent);
 
-		if (body_data.size() > content_length_left) {
+		if (content_length_left && body_data.size() > content_length_left) {
 			throw std::runtime_error(
 			    fmt::format("Attempting to send {} bytes, but only {} bytes left to sent",
 					body_data.size(),
-					content_length_left));
+					*content_length_left));
 		}
 
 		if (!was_simple_write(was, body_data.data(), body_data.size())) {
 			throw std::runtime_error("was_simple_write failed");
+		}
+
+		if (content_length_left) {
+			*content_length_left -= body_data.size();
 		}
 	}
 };

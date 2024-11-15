@@ -325,7 +325,6 @@ StartResponse(PyObject *self, PyObject *args)
 		if (!check_header_value(name)) {
 			return nullptr;
 		}
-		response->headers.emplace_back(name, value);
 
 		if (HeaderMatch(name, "Content-Length")) {
 			const auto num = ParseInteger<uint64_t>(value);
@@ -336,7 +335,10 @@ StartResponse(PyObject *self, PyObject *args)
 				return nullptr;
 			}
 			response->content_length = *num;
+			continue; // Content-Length should not be included in the WAS response
 		}
+
+		response->headers.emplace_back(name, value);
 	}
 
 	Py_RETURN_NONE;
