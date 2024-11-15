@@ -12,15 +12,24 @@
 // So far this whole Stream abstraction doesn't even make sense, but I hope it will make
 // moving to an async solution easier.
 
-struct InputStream {
+class InputStream {
+	size_t content_length = 0;
+
+public:
+	InputStream(uint64_t content_length) : content_length(content_length) {}
+
 	virtual ~InputStream() = default;
+
 	// Read up to `size` bytes, size=nullopt reads until EOF or dest.siz()
 	// returns number of bytes read, 0 on EOF
 	// Throws on error
 	virtual size_t Read(std::span<char> dest) = 0;
+
+	uint64_t ContentLength() const { return content_length; }
 };
 
 struct NullInputStream : public InputStream {
+	NullInputStream() : InputStream(0) {}
 	size_t Read(std::span<char>) override { return 0; }
 };
 
@@ -29,7 +38,7 @@ class StringInputStream : public InputStream {
 	size_t cursor = 0;
 
 public:
-	StringInputStream(std::string str) : data(std::move(str)) {}
+	StringInputStream(std::string str) : InputStream(str.size()), data(std::move(str)) {}
 
 	size_t Read(std::span<char> dest) override;
 };

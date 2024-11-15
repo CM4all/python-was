@@ -13,7 +13,7 @@ class WasInputStream : public InputStream {
 	struct was_simple *was;
 
 public:
-	WasInputStream(struct was_simple *was) : was(was) {}
+	WasInputStream(struct was_simple *was, uint64_t content_length) : InputStream(content_length), was(was) {}
 
 	size_t Read(std::span<char> dest) override
 	{
@@ -127,7 +127,16 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 	was_simple_iterator_free(it);
 
 	if (was_simple_has_body(was)) {
-		request.body = std::make_unique<WasInputStream>(was);
+		const auto input_remaining = was_simple_input_remaining(was);
+		if (input_remaining < 0) {
+			// TODO: I think this happens if we got DATA, but not LENGTH. What to do here?
+			fmt::print(stderr, "was_simple_has_body is true, but was_simple_input_remaining < 0");
+			if (!was_simple_abort(was)) {
+				fmt::print(stderr, "Error in was_simple_abort\n");
+			}
+			return;
+		}
+		request.body = std::make_unique<WasInputStream>(was, input_remaining);
 	}
 
 	WasResponder responder{ was };

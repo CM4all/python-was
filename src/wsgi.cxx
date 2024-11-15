@@ -436,20 +436,29 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 	}
 
 	const auto content_type = req.FindHeader("Content-Type");
+
+	InputStream *body_stream = nullptr;
 	// The spec is unclear, but Flask also passes Content-Length as a string
-	const auto content_length = req.FindHeader("Content-Length");
+	std::optional<std::string> content_length;
+	if (req.body) {
+		body_stream = req.body.release();
+		content_length = fmt::format("{}", req.body->ContentLength());
+	} else {
+		body_stream = new NullInputStream;
+	}
 
-	InputStream *body_stream = req.body ? req.body.release() : new NullInputStream;
-
-	PyDict_SetItemString(
-	    environ, "REQUEST_METHOD", Py::wrap(PyUnicode_FromString(http_method_to_string(req.method))));
+	PyDict_SetItemString(environ, "REQUEST_METHOD", Py::to_pyunicode(http_method_to_string(req.method)));
 	PyDict_SetItemString(environ, "SCRIPT_NAME", Py::to_pyunicode(req.script_name));
 	PyDict_SetItemString(environ, "PATH_INFO", Py::to_pyunicode(req.uri.path));
 	PyDict_SetItemString(environ, "QUERY_STRING", Py::to_pyunicode(req.uri.query));
-	PyDict_SetItemString(environ, "CONTENT_TYPE", Py::to_pyunicode(content_type.value_or("")));
-	PyDict_SetItemString(environ, "CONTENT_LENGTH", Py::to_pyunicode(content_length.value_or("")));
-	PyDict_SetItemString(environ, "SERVER_NAME", Py::wrap(PyUnicode_FromString("localhost"))); // TODO
-	PyDict_SetItemString(environ, "SERVER_PORT", Py::wrap(PyUnicode_FromString("8081")));	   // TODO
+	if (content_type) {
+		PyDict_SetItemString(environ, "CONTENT_TYPE", Py::to_pyunicode(*content_type));
+	}
+	if (content_length) {
+		PyDict_SetItemString(environ, "CONTENT_LENGTH", Py::to_pyunicode(*content_length));
+	}
+	PyDict_SetItemString(environ, "SERVER_NAME", Py::to_pyunicode("localhost")); // TODO
+	PyDict_SetItemString(environ, "SERVER_PORT", Py::to_pyunicode("8081"));	     // TODO
 	PyDict_SetItemString(environ, "SERVER_PROTOCOL", Py::to_pyunicode(req.protocol));
 
 	PyDict_SetItemString(environ, "wsgi.version", Py::wrap(Py_BuildValue("(ii)", 1, 0)));
@@ -462,6 +471,9 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 	PyDict_SetItemString(environ, "wsgi.run_once", Py_False);
 
 	for (const auto &[name, value] : req.headers) {
+		if (HeaderMatch(name, "Content-Type") || HeaderMatch(name, "Content-Length")) {
+			continue;
+		}
 		const auto translated_name = TranslateHeader(name);
 		PyDict_SetItemString(environ, translated_name.c_str(), Py::to_pyunicode(value));
 	}
