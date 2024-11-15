@@ -107,22 +107,18 @@ int
 main(int argc, char **argv)
 {
 	try {
-		fmt::print(stderr, "cwd: {}\n", ::get_current_dir_name());
 		CommandLine args(argc, argv);
 		Py::Python python;
 
 		// If you are in a virtual environment, <venv>/bin should be in PATH.
 		// Python will try to find python3 in PATH and if it finds ../pyvenv.cfg next to python3, it will add
 		// the corresponding site-packages of the venv to the sys.path.
-		// So simply activating a venv should make this work. If it doesn't just add
-		// <venv>/lib/pythonX.YY/site-packages to sys.path.
-		// FIXME: stand-alone app.py does work, but in runwas it does not (probably something with env)
-		Py::add_sys_path(".");
-		// FIXME: runwas doesn't forward env, so add it
-		Py::add_sys_path("/home/joel/dev/py_gi_bridge/.venv/lib/python3.11/site-packages");
-		// PyRun_SimpleString("import sys; print('sys.path', sys.path, file=sys.stderr)");
-		// PyRun_SimpleString("import os; print('os.cwd', os.getcwd(), file=sys.stderr)");
-		// PyRun_SimpleString("import os; print('os.environ', os.environ, file=sys.stderr)");
+		// So simply activating a venv should make it available for py-gi-bridge.
+		// If it does not, just pass `--sys-path <venv>/lib/pythonX.YY/site-packages`
+
+		for (const auto path : args.sys_path) {
+			Py::add_sys_path(path);
+		}
 
 		const auto module_name = args.module ? std::optional<std::string>(*args.module) : std::nullopt;
 		const auto app_name = args.app ? std::optional<std::string>(*args.app) : std::nullopt;
