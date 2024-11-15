@@ -453,9 +453,10 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 	PyDict_SetItemString(environ, "wsgi.version", Py::wrap(Py_BuildValue("(ii)", 1, 0)));
 	PyDict_SetItemString(environ, "wsgi.url_scheme", Py::to_pyunicode(req.scheme));
 	PyDict_SetItemString(environ, "wsgi.input", WsgiInputStream::CreatePyObject(body_stream));
-	PyDict_SetItemString(environ, "wsgi.errors", PySys_GetObject("stderr")); // TODO
-	PyDict_SetItemString(environ, "wsgi.multithread", Py_False);		 // TODO
-	PyDict_SetItemString(environ, "wsgi.multiprocess", Py_True);		 // TODO
+	// stderr will be captured by beng-proxy and transmitted to a logging server
+	PyDict_SetItemString(environ, "wsgi.errors", PySys_GetObject("stderr"));
+	PyDict_SetItemString(environ, "wsgi.multithread", Py_False);
+	PyDict_SetItemString(environ, "wsgi.multiprocess", Py_True);
 	PyDict_SetItemString(environ, "wsgi.run_once", Py_False);
 
 	for (const auto &[name, value] : req.headers) {
