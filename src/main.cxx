@@ -20,7 +20,7 @@ struct CommandLine {
 	std::optional<std::string_view> host;
 	std::optional<uint16_t> port;
 
-	void usage() { fmt::print("py-gi-bridge [--host <ip>] [--port <port>] [--module <module>] [--app <app>]\n"); }
+	void usage() { fmt::print("python-was [--host <ip>] [--port <port>] [--module <module>] [--app <app>]\n"); }
 
 	std::string_view get_arg(std::span<const std::string_view> args, size_t &i)
 	{
@@ -113,7 +113,7 @@ main(int argc, char **argv)
 		// If you are in a virtual environment, <venv>/bin should be in PATH.
 		// Python will try to find python3 in PATH and if it finds ../pyvenv.cfg next to python3, it will add
 		// the corresponding site-packages of the venv to the sys.path.
-		// So simply activating a venv should make it available for py-gi-bridge.
+		// So simply activating a venv should make it available for python-was.
 		// If it does not, just pass `--sys-path <venv>/lib/pythonX.YY/site-packages`
 
 		for (const auto path : args.sys_path) {

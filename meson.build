@@ -34,7 +34,7 @@ subdir('libcommon/src/http')
 subdir('libcommon/src/io')
 subdir('libcommon/src/was')
 
-executable('py-gi-bridge',
+executable('python-was',
   'src/http.cxx',
   'src/main.cxx',
   'src/python.cxx',

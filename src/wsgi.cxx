@@ -130,7 +130,7 @@ WsgiInputStream::GetTypeObject()
 {
 	static auto type = []() {
 		PyTypeObject type = {
-			.tp_name = "py_gi_bridge.WsgiInputStream",
+			.tp_name = "python_was.WsgiInputStream",
 			.tp_basicsize = sizeof(WsgiInputStream),
 			.tp_dealloc = &WsgiInputStream::dealloc,
 			.tp_flags = Py_TPFLAGS_DEFAULT,
