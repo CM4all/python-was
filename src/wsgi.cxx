@@ -2,14 +2,14 @@
 
 #include <fmt/core.h>
 
+#include <algorithm>
 #include <stdexcept>
 
-#include "cpython/genobject.h"
 #include "http.hxx"
 #include "object.h"
 #include "python.hxx"
 
-#include "http/status.h"
+#include "http/header.h"
 #include "util/CharUtil.hxx"
 #include "util/NumberParser.hxx"
 
@@ -40,7 +40,7 @@ WsgiInputStream::read(PyObject *self, PyObject *args)
 {
 	int64_t size = -1;
 	if (!PyArg_ParseTuple(args, "|L", &size)) {
-		Py::rethrow_python_exception();
+		return nullptr;
 	}
 
 	if (size == 0) {
@@ -49,20 +49,26 @@ WsgiInputStream::read(PyObject *self, PyObject *args)
 
 	auto stream = reinterpret_cast<WsgiInputStream *>(self)->stream;
 
-	if (size > 0) {
-		std::string buf(size, '\0');
-		buf.resize(stream->Read(buf));
-		return Py::to_bytes(buf).Release();
-	}
+	try {
+		if (size > 0) {
+			std::string buf(size, '\0');
+			buf.resize(stream->Read(buf));
+			return Py::to_bytes(buf).Release();
+		}
 
-	assert(size < 0);
-	std::array<char, 4096> read_buf;
-	std::string ret;
-	size_t n = 0;
-	while ((n = stream->Read(read_buf)) > 0) {
-		ret.append(std::string_view(read_buf.data(), n));
+		assert(size < 0);
+		std::array<char, 4096> read_buf;
+		std::string ret;
+		size_t n = 0;
+		while ((n = stream->Read(read_buf)) > 0) {
+			ret.append(std::string_view(read_buf.data(), n));
+		}
+		return Py::to_bytes(ret).Release();
+	} catch (const std::exception &exc) {
+		PyErr_SetString(PyExc_IOError,
+				fmt::format("Error reading body from WsgiInputStream: {}", errno).c_str());
+		return nullptr;
 	}
-	return Py::to_bytes(ret).Release();
 }
 
 PyObject *
@@ -156,6 +162,15 @@ WsgiInputStream::CreatePyObject(InputStream *stream)
 	return Py::wrap(reinterpret_cast<PyObject *>(obj));
 }
 
+bool
+is_allowed_wsgi_header(std::string_view name) noexcept
+{
+	std::string lower(name.size(), '\0');
+	std::transform(name.begin(), name.end(), lower.begin(), ToLowerASCII);
+	// http_header_is_hop_by_hop also checks for Content-Length
+	return HeaderMatch(name, "Content-Length") || !http_header_is_hop_by_hop(lower.c_str());
+}
+
 PyObject *
 StartResponse(PyObject *self, PyObject *args)
 {
@@ -163,21 +178,26 @@ StartResponse(PyObject *self, PyObject *args)
 	// Therefore we don't have to decref them and therefore I don't wrap them.
 	PyObject *status, *headers;
 	if (!PyArg_ParseTuple(args, "OO", &status, &headers)) {
-		Py::rethrow_python_exception();
+		return nullptr;
 	}
 
-	auto responder = static_cast<HttpResponder *>(PyCapsule_GetPointer(self, "HttpResponder"));
-	if (!responder) {
-		throw std::runtime_error("Cannot call start_response after request is finished");
+	auto response = static_cast<HttpResponse *>(PyCapsule_GetPointer(self, "HttpResponse"));
+	if (!response) {
+		PyErr_SetString(PyExc_RuntimeError, "Cannot call start_response after WSGI application has returned");
+		return nullptr;
 	}
 
 	const auto status_str = Py::to_string_view(status);
 	const auto status_code = ParseInteger<uint16_t>(status_str.substr(0, status_str.find(' ')));
 	if (!status_code) {
-		throw std::runtime_error(fmt::format("Could not parse status code: '{}'", status_str));
+		PyErr_SetString(PyExc_ValueError, fmt::format("Could not parse status code '{}'", status_str).c_str());
+		return nullptr;
 	}
-	HttpResponse response;
-	response.status = static_cast<http_status_t>(*status_code);
+	response->status = static_cast<http_status_t>(*status_code);
+	if (!http_status_is_valid(response->status)) {
+		PyErr_SetString(PyExc_ValueError, fmt::format("Invalid HTTP Status '{}'", response->status).c_str());
+		return nullptr;
+	}
 
 	const auto len = PyList_Size(headers);
 	for (std::remove_const_t<decltype(len)> i = 0; i < len; i++) {
@@ -185,12 +205,26 @@ StartResponse(PyObject *self, PyObject *args)
 		PyObject *item = PyList_GetItem(headers, i);
 		if (item) {
 			const auto name = Py::to_string_view(PyTuple_GetItem(item, 0));
+			if (!is_allowed_wsgi_header(name)) {
+				PyErr_SetString(PyExc_ValueError,
+						fmt::format("Hop-by-hop header '{}' is not allowed", name).c_str());
+				return nullptr;
+			}
 			const auto value = Py::to_string_view(PyTuple_GetItem(item, 1));
-			response.headers.emplace_back(name, value);
+			response->headers.emplace_back(name, value);
+
+			if (HeaderMatch(name, "Content-Length")) {
+				const auto num = ParseInteger<uint64_t>(value);
+				if (!num) {
+					PyErr_SetString(
+					    PyExc_ValueError,
+					    fmt::format("Could not parse Content-Length header: '{}'", value).c_str());
+					return nullptr;
+				}
+				response->content_length = *num;
+			}
 		}
 	}
-
-	responder->SendHeaders(std::move(response));
 
 	Py_RETURN_NONE;
 }
@@ -321,12 +355,13 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 		Py::rethrow_python_exception();
 	}
 
-	auto responder_capsule = PyCapsule_New(&responder, "HttpResponder", nullptr);
+	HttpResponse response;
+	auto response_capsule = PyCapsule_New(&response, "HttpResponse", nullptr);
 
 	PyMethodDef start_response_def = {
 		"start_response", (PyCFunction)StartResponse, METH_VARARGS, "WSGI start_response"
 	};
-	auto start_response_callable = Py::wrap(PyCFunction_New(&start_response_def, responder_capsule));
+	auto start_response_callable = Py::wrap(PyCFunction_New(&start_response_def, response_capsule));
 	if (!start_response_callable) {
 		Py::rethrow_python_exception();
 	}
@@ -338,9 +373,11 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 		Py::rethrow_python_exception();
 	}
 
-	if (!responder.HeadersSent()) {
+	if (response.status == 0) {
 		throw std::runtime_error("start_response needs to be called before WSGI application returns");
 	}
+
+	responder.SendHeaders(std::move(response));
 
 	auto result_iterator = Py::wrap(PyObject_GetIter(result));
 	if (!result_iterator) {
@@ -358,7 +395,7 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 	// Instead we change the name, so GetPointer will fail in StartResponse.
 	// We reset the capsule so in case the Python code kept a reference to start_response
 	// and called it after this function has finished, we do not get a use-after-free on `response`.
-	if (PyCapsule_SetName(responder_capsule, nullptr)) {
+	if (PyCapsule_SetName(response_capsule, nullptr)) {
 		Py::rethrow_python_exception();
 	}
 

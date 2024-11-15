@@ -73,8 +73,9 @@ struct HttpRequest {
 };
 
 struct HttpResponse {
-	http_status_t status;
+	http_status_t status = static_cast<http_status_t>(0);
 	std::vector<std::pair<std::string, std::string>> headers;
+	std::optional<uint64_t> content_length;
 };
 
 struct HttpResponder {

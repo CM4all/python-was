@@ -33,54 +33,26 @@ public:
 // You must create a separate object for each request!
 struct WasResponder : public HttpResponder {
 	struct was_simple *was;
-	bool chunked_transfer = false;
 	size_t content_length_left = 0;
 
 	WasResponder(struct was_simple *was) : was(was) {}
 
 	void SendHeaders(HttpResponse &&response) override
 	{
-		if (!http_status_is_valid(response.status)) {
-			throw std::runtime_error(fmt::format("Invalid HTTP response status: {}", response.status));
-		}
+		assert(http_status_is_valid(response.status));
 
 		if (!was_simple_status(was, response.status)) {
 			throw std::runtime_error("Error in was_simple_status");
 		}
 
-		std::optional<std::string_view> transfer_encoding_header;
-		std::optional<std::string_view> content_length_header;
-
 		for (const auto &[name, value] : response.headers) {
-			if (HeaderMatch(name, "Content-Length")) {
-				content_length_header = value;
-				continue;
-			}
-			if (HeaderMatch(name, "Transfer-Encoding")) { // this is hop-by-hop
-				transfer_encoding_header = value;
-			}
-			if (http_header_is_hop_by_hop(name.c_str())) {
-				continue;
-			}
 			if (!was_simple_set_header_n(was, name.data(), name.size(), value.data(), value.size())) {
 				throw std::runtime_error("was_simple_set_header_n failed");
 			}
 		}
 
-		// TODO: Figure out how this is actually done in Flask
-		const auto chunked_transfer =
-		    transfer_encoding_header && transfer_encoding_header->find("chunked") != std::string_view::npos;
-
-		if (content_length_header) {
-			const auto num = ParseInteger<uint64_t>(*content_length_header);
-			if (!num) {
-				throw std::runtime_error(fmt::format(
-				    "Could not parse Content-Length response header: '{}'", *content_length_header));
-			}
-			content_length_left = *num;
-		}
-
-		assert(!chunked_transfer); // TODO!
+		// TODO: Maybe use chunked transfer without Content-Length?
+		content_length_left = response.content_length.value_or(0);
 
 		if (content_length_left == 0) {
 			if (!was_simple_end(was)) {
