@@ -6,7 +6,6 @@
 #include <stdexcept>
 
 #include "http.hxx"
-#include "object.h"
 #include "python.hxx"
 
 #include "http/header.h"
@@ -163,12 +162,96 @@ WsgiInputStream::CreatePyObject(InputStream *stream)
 }
 
 bool
-is_allowed_wsgi_header(std::string_view name) noexcept
+is_valid_header_name(std::string_view name) noexcept
 {
+	// https://datatracker.ietf.org/doc/html/rfc2616#section-2.2
+	static constexpr std::array<bool, 256> is_valid = []() {
+		std::array<bool, 256> v = {};
+
+		// "1*<any CHAR except CTLs or separators>", CHAR=(octets 0 - 127)
+		// Control Characters "<any US-ASCII control character (octets 0 - 31) and DEL (127)>"
+		std::fill(v.begin() + 32, v.begin() + 127, true);
+		assert(!v[0] && !v[31] && v[32] && v[126] && !v[127]);
+
+		// Separators
+		constexpr std::array separators = { '(', ')', '<', '>', '@', ',', ';', ':', '\\', '"',
+						    '/', '[', ']', '?', '=', '{', '}', ' ', '\t' };
+		for (const auto c : separators) {
+			v[c] = false;
+		}
+
+		return v;
+	}();
+
+	if (name.empty()) {
+		return false;
+	}
+
+	for (char c : name) {
+		if (!is_valid[static_cast<uint8_t>(c)]) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool
+check_header_name(std::string_view name) noexcept
+{
+	if (!is_valid_header_name(name)) {
+		PyErr_SetString(PyExc_ValueError, fmt::format("Invalid header name '{}'", name).c_str());
+		return false;
+	}
+
 	std::string lower(name.size(), '\0');
 	std::transform(name.begin(), name.end(), lower.begin(), ToLowerASCII);
 	// http_header_is_hop_by_hop also checks for Content-Length
-	return HeaderMatch(name, "Content-Length") || !http_header_is_hop_by_hop(lower.c_str());
+	if (lower != "content-length" && http_header_is_hop_by_hop(lower.c_str())) {
+		PyErr_SetString(PyExc_ValueError, fmt::format("Hop-by-hop header '{}' is not allowed", name).c_str());
+		return false;
+	}
+	return true;
+}
+
+bool
+is_valid_header_value(std::string_view value) noexcept
+{
+	// https://www.rfc-editor.org/rfc/rfc7230#section-3.2
+	// Exclude line folding (obs-fold)
+	/*
+	field-content = field-vchar [ 1*( SP / HTAB ) field-vchar ]
+	field-value = *( field-content )
+	field-vchar = VCHAR / obs-text
+	*/
+	static constexpr std::array<bool, 256> is_valid = []() {
+		std::array<bool, 256> v = {};
+
+		std::fill(v.begin() + 0x21, v.begin() + 0x7E + 1, true); // VCHAR (%x21-7E)
+		std::fill(v.begin() + 0x80, v.begin() + 0xFF + 1, true); // obs-text (%x80-FF)
+		v[0x20] = true;						 // SP
+		v[0x09] = true;						 // HTAB
+
+		return v;
+	}();
+
+	for (char c : value) {
+		if (!is_valid[static_cast<uint8_t>(c)]) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool
+check_header_value(std::string_view value) noexcept
+{
+	if (!is_valid_header_value(value)) {
+		PyErr_SetString(PyExc_ValueError, fmt::format("Invalid header value '{}'", value).c_str());
+		return false;
+	}
+	return true;
 }
 
 PyObject *
@@ -176,8 +259,9 @@ StartResponse(PyObject *self, PyObject *args)
 {
 	// These are owned by the Python interpreter, because they are passed to the function.
 	// Therefore we don't have to decref them and therefore I don't wrap them.
-	PyObject *status, *headers;
-	if (!PyArg_ParseTuple(args, "OO", &status, &headers)) {
+	const char *status = nullptr;
+	PyObject *headers = nullptr;
+	if (!PyArg_ParseTuple(args, "sO!", &status, &PyList_Type, &headers)) {
 		return nullptr;
 	}
 
@@ -187,10 +271,10 @@ StartResponse(PyObject *self, PyObject *args)
 		return nullptr;
 	}
 
-	const auto status_str = Py::to_string_view(status);
-	const auto status_code = ParseInteger<uint16_t>(status_str.substr(0, status_str.find(' ')));
+	const auto status_sv = std::string_view(status);
+	const auto status_code = ParseInteger<uint16_t>(status_sv.substr(0, status_sv.find(' ')));
 	if (!status_code) {
-		PyErr_SetString(PyExc_ValueError, fmt::format("Could not parse status code '{}'", status_str).c_str());
+		PyErr_SetString(PyExc_ValueError, fmt::format("Could not parse status code '{}'", status_sv).c_str());
 		return nullptr;
 	}
 	response->status = static_cast<http_status_t>(*status_code);
@@ -200,29 +284,30 @@ StartResponse(PyObject *self, PyObject *args)
 	}
 
 	const auto len = PyList_Size(headers);
-	for (std::remove_const_t<decltype(len)> i = 0; i < len; i++) {
+	for (Py_ssize_t i = 0; i < len; i++) {
 		// Also a borrowed reference, see above
 		PyObject *item = PyList_GetItem(headers, i);
-		if (item) {
-			const auto name = Py::to_string_view(PyTuple_GetItem(item, 0));
-			if (!is_allowed_wsgi_header(name)) {
-				PyErr_SetString(PyExc_ValueError,
-						fmt::format("Hop-by-hop header '{}' is not allowed", name).c_str());
+		assert(item); // Item should be !null, if i < len.
+
+		const auto name = Py::to_string_view(PyTuple_GetItem(item, 0));
+		if (!check_header_name(name)) {
+			return nullptr;
+		}
+		const auto value = Py::to_string_view(PyTuple_GetItem(item, 1));
+		if (!check_header_value(name)) {
+			return nullptr;
+		}
+		response->headers.emplace_back(name, value);
+
+		if (HeaderMatch(name, "Content-Length")) {
+			const auto num = ParseInteger<uint64_t>(value);
+			if (!num) {
+				PyErr_SetString(
+				    PyExc_ValueError,
+				    fmt::format("Could not parse Content-Length header: '{}'", value).c_str());
 				return nullptr;
 			}
-			const auto value = Py::to_string_view(PyTuple_GetItem(item, 1));
-			response->headers.emplace_back(name, value);
-
-			if (HeaderMatch(name, "Content-Length")) {
-				const auto num = ParseInteger<uint64_t>(value);
-				if (!num) {
-					PyErr_SetString(
-					    PyExc_ValueError,
-					    fmt::format("Could not parse Content-Length header: '{}'", value).c_str());
-					return nullptr;
-				}
-				response->content_length = *num;
-			}
+			response->content_length = *num;
 		}
 	}
 
@@ -242,7 +327,6 @@ TranslateHeader(std::string_view header_name) noexcept
 	}
 	return str;
 }
-
 }
 
 Py::Object
