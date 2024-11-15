@@ -261,8 +261,28 @@ StartResponse(PyObject *self, PyObject *args)
 	// Therefore we don't have to decref them and therefore I don't wrap them.
 	const char *status = nullptr;
 	PyObject *headers = nullptr;
-	if (!PyArg_ParseTuple(args, "sO!", &status, &PyList_Type, &headers)) {
+	PyObject *exc_info_type = nullptr;
+	PyObject *exc_info_exception = nullptr;
+	PyObject *exc_info_traceback = nullptr;
+
+	// clang-format off
+	if (!PyArg_ParseTuple(args,
+			      "sO!|(O!O!O!)",
+			      &status,
+			      &PyList_Type, &headers,
+			      &PyType_Type, &exc_info_type,
+			      &PyObject_Type, &exc_info_exception,
+			      &PyTraceBack_Type, &exc_info_traceback)) {
 		return nullptr;
+	}
+	// clang-format on
+
+	if (exc_info_type || exc_info_exception || exc_info_traceback) {
+		assert(exc_info_type && exc_info_exception && exc_info_traceback);
+		if (!PyExceptionClass_Check(exc_info_type) || !PyObject_IsInstance(exc_info_exception, exc_info_type)) {
+			PyErr_SetString(PyExc_TypeError, "Invalid exc_info argument");
+			return nullptr;
+		}
 	}
 
 	auto response = static_cast<HttpResponse *>(PyCapsule_GetPointer(self, "HttpResponse"));
@@ -293,7 +313,7 @@ StartResponse(PyObject *self, PyObject *args)
 		const auto value_obj = PyTuple_GetItem(item, 1); // borrowed reference
 
 		if (!PyUnicode_Check(name_obj) || !PyUnicode_Check(value_obj)) {
-			PyErr_SetString(PyExc_ValueError, "headers must be list of tuples (str, str)");
+			PyErr_SetString(PyExc_TypeError, "headers must be list of tuples (str, str)");
 			return nullptr;
 		}
 
