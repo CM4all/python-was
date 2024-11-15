@@ -285,15 +285,23 @@ StartResponse(PyObject *self, PyObject *args)
 
 	const auto len = PyList_Size(headers);
 	for (Py_ssize_t i = 0; i < len; i++) {
-		// Also a borrowed reference, see above
-		PyObject *item = PyList_GetItem(headers, i);
+		PyObject *item = PyList_GetItem(headers, i); // borrowed reference
+
 		assert(item); // Item should be !null, if i < len.
 
-		const auto name = Py::to_string_view(PyTuple_GetItem(item, 0));
+		const auto name_obj = PyTuple_GetItem(item, 0);	 // borrowed reference
+		const auto value_obj = PyTuple_GetItem(item, 1); // borrowed reference
+
+		if (!PyUnicode_Check(name_obj) || !PyUnicode_Check(value_obj)) {
+			PyErr_SetString(PyExc_ValueError, "headers must be list of tuples (str, str)");
+			return nullptr;
+		}
+
+		const auto name = Py::to_string_view(name_obj);
 		if (!check_header_name(name)) {
 			return nullptr;
 		}
-		const auto value = Py::to_string_view(PyTuple_GetItem(item, 1));
+		const auto value = Py::to_string_view(value_obj);
 		if (!check_header_value(name)) {
 			return nullptr;
 		}
