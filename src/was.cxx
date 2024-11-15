@@ -96,9 +96,6 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 		if (!was_simple_status(was, HTTP_STATUS_METHOD_NOT_ALLOWED)) {
 			fmt::print(stderr, "Error in was_simple_status\n");
 		}
-		if (!was_simple_end(was)) {
-			fmt::print(stderr, "Error in was_simple_end\n");
-		}
 		return;
 	}
 
@@ -134,24 +131,21 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 	try {
 		handler.Process(std::move(request), responder);
 	} catch (std::exception &exc) {
-		// If was_simple_status, was_simple_set_header, etc. fail, the cause was likely an IO on the
-		// command channel, in which case it doesn't make sense to do anything else and we will
+		// If was_simple_status, was_simple_set_header, etc. fail, the cause is either a programming error or an
+		// IO Error on the command channel, in which case it doesn't make sense to do anything else and we will
 		// likely terminate soon.
-		// Abort will not do anything if the state is ERROR, EndRequest will discard input and flush the control
-		// channel, so EndRequest would make more sense, but we don't know when exactly we failed, so I abort
-		// for now.
-		// TODO: Ask Max how to deal with this properly.
+		// I log the errors for each function in case it was a programming error (wrong state).
+		// In the case of an IO Error, was_simple_accept will clean up the current request and either fail
+		// itself in which case we gracefully terminate the loop in `Run` and exit the program or it will clean
+		// up the current request and try another one.
+		// We don't know what kind of exception we got, so it's possible a was_simple_* function failed, but
+		// was_simple_abort will not do anything if the state is ERROR, so in case it was something else, we
+		// abort the request here.
 		fmt::print(stderr, "Exception handling request: {}\n", exc.what());
 		if (!was_simple_abort(was)) {
 			fmt::print(stderr, "Error in was_simple_abort\n");
 		}
 		return;
-	}
-
-	// Either this is a programming error, or an IO error and in both cases we can't do
-	// much more than log and proceed to the next request.
-	if (!was_simple_end(was)) {
-		fmt::print(stderr, "Error in was_simple_end\n");
 	}
 }
 
