@@ -9,3 +9,11 @@ def hello_world():
 @app.route("/", methods=["PUT"])
 def put():
     return request.json
+
+@app.route("/error")
+def error():
+    raise IOError("Intentional error")
+
+@app.route("/empty")
+def empty():
+    return ""

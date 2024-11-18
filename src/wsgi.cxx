@@ -296,6 +296,11 @@ from_native_string(PyObject *str)
 	return result;
 }
 
+struct StartResponseContext {
+	HttpResponse *response;
+	HttpResponder *responder;
+};
+
 PyObject *
 StartResponse(PyObject *self, PyObject *args)
 {
@@ -327,9 +332,30 @@ StartResponse(PyObject *self, PyObject *args)
 		}
 	}
 
-	auto response = static_cast<HttpResponse *>(PyCapsule_GetPointer(self, "HttpResponse"));
-	if (!response) {
+	auto ctx = static_cast<StartResponseContext *>(PyCapsule_GetPointer(self, "StartResponseContext"));
+	if (!ctx) {
 		PyErr_SetString(PyExc_RuntimeError, "Cannot call start_response after WSGI application has returned");
+		return nullptr;
+	}
+
+	auto &response = *ctx->response;
+	auto &responder = *ctx->responder;
+
+	// The application may call start_response more than once, if and only if the exc_info argument is provided.
+	if (exc_info_type) {
+		if (responder.HeadersSent()) {
+			// reraise (also according to PEP-3333)
+			// Because PyErr_SetExcInfo steals refs and PyArg_ParseTuple returned borrowed refs, we have to
+			// increment the refcount.
+			Py_INCREF(exc_info_type);
+			Py_INCREF(exc_info_exception);
+			Py_INCREF(exc_info_traceback);
+			PyErr_SetExcInfo(exc_info_type, exc_info_exception, exc_info_traceback);
+			return nullptr;
+		}
+	} else if (response.status) {
+		PyErr_SetString(PyExc_AssertionError,
+				"start_response must not be called more than once without exc_info");
 		return nullptr;
 	}
 
@@ -341,11 +367,15 @@ StartResponse(PyObject *self, PyObject *args)
 		PyErr_SetString(PyExc_ValueError, fmt::format("Could not parse status code '{}'", status_sv).c_str());
 		return nullptr;
 	}
-	response->status = static_cast<http_status_t>(*status_code);
-	if (!http_status_is_valid(response->status)) {
-		PyErr_SetString(PyExc_ValueError, fmt::format("Invalid HTTP Status '{}'", response->status).c_str());
+	response.status = static_cast<http_status_t>(*status_code);
+	if (!http_status_is_valid(response.status)) {
+		PyErr_SetString(PyExc_ValueError, fmt::format("Invalid HTTP Status '{}'", response.status).c_str());
 		return nullptr;
 	}
+
+	// PEP-3333:
+	// Servers should check for errors in the headers at the time start_response is called, so that an error can be
+	// raised while the application is still running.
 
 	const auto len = PyList_Size(headers);
 	for (Py_ssize_t i = 0; i < len; i++) {
@@ -385,11 +415,18 @@ StartResponse(PyObject *self, PyObject *args)
 				    fmt::format("Could not parse Content-Length header: '{}'", *value).c_str());
 				return nullptr;
 			}
-			response->content_length = *num;
+			response.content_length = *num;
 			continue; // Content-Length should not be included in the WAS response
 		}
 
-		response->headers.emplace_back(*name, *value);
+		response.headers.emplace_back(*name, *value);
+	}
+
+	// "response headers must not be sent until there is actual body data available, or until the application’s
+	// returned iterable is exhausted. (The only possible exception to this rule is if the response headers
+	// explicitly include a Content-Length of zero.)"
+	if (response.content_length == 0) {
+		responder.SendHeaders(std::move(response));
 	}
 
 	Py_RETURN_NONE;
@@ -536,12 +573,13 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 	}
 
 	HttpResponse response;
-	auto response_capsule = PyCapsule_New(&response, "HttpResponse", nullptr);
+	StartResponseContext start_response_ctx{ .response = &response, .responder = &responder };
+	auto start_response_ctx_capsule = PyCapsule_New(&start_response_ctx, "StartResponseContext", nullptr);
 
 	PyMethodDef start_response_def = {
 		"start_response", (PyCFunction)StartResponse, METH_VARARGS, "WSGI start_response"
 	};
-	auto start_response_callable = Py::wrap(PyCFunction_New(&start_response_def, response_capsule));
+	auto start_response_callable = Py::wrap(PyCFunction_New(&start_response_def, start_response_ctx_capsule));
 	if (!start_response_callable) {
 		Py::rethrow_python_exception();
 	}
@@ -553,33 +591,53 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 		Py::rethrow_python_exception();
 	}
 
-	if (response.status == 0) {
-		throw std::runtime_error("start_response needs to be called before WSGI application returns");
-	}
-
-	responder.SendHeaders(std::move(response));
-
 	auto result_iterator = Py::wrap(PyObject_GetIter(result));
 	if (!result_iterator) {
 		Py::rethrow_python_exception();
 	}
 
 	for (auto item = Py::wrap(PyIter_Next(result_iterator)); item; item = PyIter_Next(result_iterator)) {
-		if (PyErr_Occurred()) {
-			Py::rethrow_python_exception();
+		// The application must invoke `start_response` before the iterable yields the first body bytestring.
+		// This may be performed by the iterable's first iteration, so this is the earliest we can check.
+		// `start_response` may also be invoked multiple times, so it cannot send the headers itself.
+		if (!responder.HeadersSent()) {
+			if (response.status == 0) {
+				throw std::runtime_error("start_response must be called before the WSGI "
+							 "application yields the first body string");
+			}
+			// move in a loop is scary, but the check above should prevent this being done multiple times.
+			responder.SendHeaders(std::move(response));
 		}
 		responder.SendBody(Py::to_string_view(item));
+	}
+
+	// It's possible the iterable was empty and PyIter_Next returned null immediately
+	if (!responder.HeadersSent()) {
+		if (response.status == 0) {
+			throw std::runtime_error("start_response must be called before the WSGI "
+						 "application yields the first body string");
+		}
+		responder.SendHeaders(std::move(response));
+	}
+
+	// PyIter_Next will return null on error, so we need to check here
+	if (PyErr_Occurred()) {
+		Py::rethrow_python_exception();
+	}
+
+	// Call close() if the iterator has such a method
+	if (PyObject_HasAttrString(result, "close")) {
+		auto close_result = Py::wrap(PyObject_CallMethod(result, "close", nullptr));
+		if (!close_result) {
+			Py::rethrow_python_exception();
+		}
 	}
 
 	// A capsule must not store a nullptr, so SetPointer will fail with nullptr.
 	// Instead we change the name, so GetPointer will fail in StartResponse.
 	// We reset the capsule so in case the Python code kept a reference to start_response
-	// and called it after this function has finished, we do not get a use-after-free on `response`.
-	if (PyCapsule_SetName(response_capsule, nullptr)) {
-		Py::rethrow_python_exception();
-	}
-
-	if (PyErr_Occurred()) {
+	// and called it after this function has finished, we do not get a use-after-free.
+	if (PyCapsule_SetName(start_response_ctx_capsule, nullptr)) {
 		Py::rethrow_python_exception();
 	}
 }
