@@ -72,7 +72,7 @@ HeaderMatch(std::string_view a, std::string_view b) noexcept;
 struct HttpRequest {
 	std::string script_name;
 	std::string protocol; // e.g. HTTP/1.1
-	std::string scheme;   // TODO: probably hardcode this to 'http'
+	std::string scheme;
 	http_method_t method;
 	Uri uri;
 	std::vector<std::pair<std::string, std::string>> headers;

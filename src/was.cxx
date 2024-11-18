@@ -109,8 +109,12 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 
 	HttpRequest request{
 		.script_name = script_name ? script_name : "",
-		.protocol = "HTTP/1.1", // TODO
-		.scheme = "http",	// TODO
+		// We hard-code this, because there is simply no way to know and no application should depend on this
+		// anyways.
+		.protocol = "HTTP/1.1",
+		// We also cannot know the scheme, but we can know if HTTPS was used externally, so we will set it
+		// later, if we find the corresponding header.
+		.scheme = "http",
 		.method = method,
 		.uri =
 		    Uri{
@@ -122,6 +126,9 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 	auto it = was_simple_get_header_iterator(was);
 	const was_simple_pair *elem;
 	while ((elem = was_simple_iterator_next(it))) {
+		if (HeaderMatch(elem->name, "X-CM4all-HTTPS") && std::string_view(elem->value) == "on") {
+			request.scheme = "https";
+		}
 		request.headers.emplace_back(elem->name, elem->value);
 	}
 	was_simple_iterator_free(it);
