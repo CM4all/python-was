@@ -70,6 +70,7 @@ struct Uri {
 HeaderMatch(std::string_view a, std::string_view b) noexcept;
 
 struct HttpRequest {
+	std::string remote_addr;
 	std::string script_name;
 	std::string server_name;
 	std::string server_port;

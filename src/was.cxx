@@ -104,12 +104,18 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 		return;
 	}
 
+	const auto remote_host = was_simple_get_remote_host(was);
 	const auto script_name = was_simple_get_script_name(was);
 	const auto path = was_simple_get_path_info(was);
 	const auto query = was_simple_get_query_string(was);
 	const auto parsed_uri = Uri::split(uri);
 
+	// REMOTE_HOST is set to "<ip>:<port>" by beng-proxy.
+	const auto remote_host_sv = remote_host ? std::string_view(remote_host) : std::string_view();
+	const auto remote_addr = remote_host_sv.substr(0, remote_host_sv.find(':'));
+
 	HttpRequest request{
+		.remote_addr = std::string(remote_addr),
 		.script_name = script_name ? script_name : "",
 		.server_name = "localhost",
 		.server_port = "80",

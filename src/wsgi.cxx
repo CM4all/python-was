@@ -537,19 +537,18 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 
 	// All keys and values must be native strings
 
+	PyDict_SetItemString(environ, "REMOTE_ADDR", native_string(req.remote_addr));
 	PyDict_SetItemString(environ, "REQUEST_METHOD", native_string(http_method_to_string(req.method)));
 	PyDict_SetItemString(environ, "SCRIPT_NAME", native_string(req.script_name));
 	PyDict_SetItemString(environ, "PATH_INFO", native_string(req.uri.path));
 	PyDict_SetItemString(environ, "QUERY_STRING", native_string(req.uri.query));
-	if (content_type) {
-		PyDict_SetItemString(environ, "CONTENT_TYPE", native_string(*content_type));
-	}
-	if (content_length) {
-		PyDict_SetItemString(environ, "CONTENT_LENGTH", native_string(*content_length));
-	}
+	PyDict_SetItemString(environ, "CONTENT_TYPE", native_string(content_type.value_or("")));
+	PyDict_SetItemString(environ, "CONTENT_LENGTH", native_string(content_length.value_or("")));
 	PyDict_SetItemString(environ, "SERVER_NAME", native_string(req.server_name));
 	PyDict_SetItemString(environ, "SERVER_PORT", native_string(req.server_port));
 	PyDict_SetItemString(environ, "SERVER_PROTOCOL", native_string(req.protocol));
+	PyDict_SetItemString(environ, "SERVER_SOFTWARE", native_string("python-was/v0.1"));
+	PyDict_SetItemString(environ, "HTTPS", native_string(req.scheme == "https" ? "on" : "")); // mod_ssl
 
 	PyDict_SetItemString(environ, "wsgi.version", Py::wrap(Py_BuildValue("(ii)", 1, 0)));
 	PyDict_SetItemString(environ, "wsgi.url_scheme", native_string(req.scheme));
