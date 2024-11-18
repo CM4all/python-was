@@ -72,18 +72,20 @@ struct WasResponder : public HttpResponder {
 	{
 		assert(headers_sent);
 
-		if (content_length_left && body_data.size() > content_length_left) {
-			throw std::runtime_error(
-			    fmt::format("Attempting to send {} bytes, but only {} bytes left to sent",
-					body_data.size(),
-					*content_length_left));
-		}
+		const auto write_len =
+		    content_length_left ? std::min(*content_length_left, body_data.size()) : body_data.size();
 
-		if (!was_simple_write(was, body_data.data(), body_data.size())) {
+		if (!was_simple_write(was, body_data.data(), write_len)) {
 			throw std::runtime_error("was_simple_write failed");
 		}
 
 		if (content_length_left) {
+			if (body_data.size() > content_length_left) {
+				throw std::runtime_error(
+				    fmt::format("Attempting to send {} bytes, but only {} bytes left to sent",
+						body_data.size(),
+						*content_length_left));
+			}
 			*content_length_left -= body_data.size();
 		}
 	}
@@ -179,6 +181,12 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 			fmt::print(stderr, "Error in was_simple_abort\n");
 		}
 		return;
+	}
+
+	// We are supposed to log here and close the connection. We don't really have that option (anymore).
+	// was_simple_accept will send PREMATURE and I hope that beng-proxy closes the connection by itself.
+	if (responder.content_length_left > 0) {
+		fmt::print(stderr, "{} bytes of response body data left to send\n", *responder.content_length_left);
 	}
 }
 
