@@ -559,6 +559,17 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 	PyDict_SetItemString(environ, "wsgi.multiprocess", Py_True);
 	PyDict_SetItemString(environ, "wsgi.run_once", Py_False);
 
+	// https://gist.github.com/mitsuhiko/5721547
+	// This is supported by many webservers (mod_wsgi, gunicorn) and applications (Flask/Werkzeug)
+	// It tells the application that wsgi.input is eof-terminated (eof being the end of the response body)
+	// and not directly mapped to a socket, so that .read() will read the whole request body and terminate
+	// if the request body has been read completely. It allows the application to not wrap the stream to
+	// make sure it never reads more than CONTENT_LENGTH, which is required by the WSGI spec.
+	// WsgiInputStream is independent of the Content-Length in the request body, so it satisfied this
+	// requirement automatically and we can set this flag to skip a check in Flask and to allow for
+	// chunked request bodies.
+	PyDict_SetItemString(environ, "wsgi.input_terminated", Py_True);
+
 	for (const auto &[name, value] : req.headers) {
 		if (HeaderMatch(name, "Content-Type") || HeaderMatch(name, "Content-Length")) {
 			continue;
