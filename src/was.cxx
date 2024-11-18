@@ -25,7 +25,7 @@ public:
 		if (n == -1) {
 			throw std::system_error(errno, std::system_category());
 		}
-		assert(n > 0);
+		assert(n >= 0);
 		return static_cast<size_t>(n);
 	}
 };
