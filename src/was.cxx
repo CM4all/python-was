@@ -109,6 +109,8 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 
 	HttpRequest request{
 		.script_name = script_name ? script_name : "",
+		.server_name = "localhost",
+		.server_port = "80",
 		// We hard-code this, because there is simply no way to know and no application should depend on this
 		// anyways.
 		.protocol = "HTTP/1.1",
@@ -126,12 +128,24 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 	auto it = was_simple_get_header_iterator(was);
 	const was_simple_pair *elem;
 	while ((elem = was_simple_iterator_next(it))) {
-		if (HeaderMatch(elem->name, "X-CM4all-HTTPS") && std::string_view(elem->value) == "on") {
+		std::string_view value = elem->value;
+		if (HeaderMatch(elem->name, "X-CM4all-HTTPS") && value == "on") {
 			request.scheme = "https";
 		}
-		request.headers.emplace_back(elem->name, elem->value);
+		if (HeaderMatch(elem->name, "Host")) {
+			const auto colon = value.find(':');
+			request.server_name = value.substr(0, colon);
+			if (colon != std::string_view::npos) {
+				request.server_port = value.substr(colon + 1);
+			}
+		}
+		request.headers.emplace_back(elem->name, value);
 	}
 	was_simple_iterator_free(it);
+
+	if (request.server_port.empty()) {
+		request.server_port = request.scheme == "https" ? "443" : "80";
+	}
 
 	if (was_simple_has_body(was)) {
 		const auto input_remaining = was_simple_input_remaining(was);

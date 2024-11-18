@@ -457,8 +457,8 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 	if (content_length) {
 		PyDict_SetItemString(environ, "CONTENT_LENGTH", Py::to_pyunicode(*content_length));
 	}
-	PyDict_SetItemString(environ, "SERVER_NAME", Py::to_pyunicode("localhost")); // TODO
-	PyDict_SetItemString(environ, "SERVER_PORT", Py::to_pyunicode("8081"));	     // TODO
+	PyDict_SetItemString(environ, "SERVER_NAME", Py::to_pyunicode(req.server_name));
+	PyDict_SetItemString(environ, "SERVER_PORT", Py::to_pyunicode(req.server_port));
 	PyDict_SetItemString(environ, "SERVER_PROTOCOL", Py::to_pyunicode(req.protocol));
 
 	PyDict_SetItemString(environ, "wsgi.version", Py::wrap(Py_BuildValue("(ii)", 1, 0)));

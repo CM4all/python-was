@@ -71,6 +71,8 @@ HeaderMatch(std::string_view a, std::string_view b) noexcept;
 
 struct HttpRequest {
 	std::string script_name;
+	std::string server_name;
+	std::string server_port;
 	std::string protocol; // e.g. HTTP/1.1
 	std::string scheme;
 	http_method_t method;
