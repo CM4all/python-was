@@ -11,9 +11,21 @@ wrap(PyObject *obj) noexcept
 }
 
 Object
-to_pyunicode(std::string_view str)
+uc_from_utf8(std::string_view str)
 {
 	auto obj = wrap(PyUnicode_FromStringAndSize(str.data(), str.size()));
+	if (!obj) {
+		Py::rethrow_python_exception();
+	}
+	return obj;
+}
+
+Object
+uc_from_latin1(std::string_view str)
+{
+	// Any byte sequence should be representable as Latin-1, so this will only
+	// fail on allocation failure.
+	auto obj = wrap(PyUnicode_DecodeLatin1(str.data(), str.size(), nullptr));
 	if (!obj) {
 		Py::rethrow_python_exception();
 	}
@@ -87,7 +99,7 @@ add_sys_path(std::string_view path)
 		throw Error("sys.path does not exist or is not a list");
 	}
 
-	auto py_path = to_pyunicode(path);
+	auto py_path = uc_from_utf8(path);
 	if (!py_path) {
 		rethrow_python_exception();
 	}

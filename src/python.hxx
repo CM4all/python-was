@@ -56,7 +56,10 @@ Object
 wrap(PyObject *obj) noexcept;
 
 Object
-to_pyunicode(std::string_view str);
+uc_from_utf8(std::string_view str);
+
+Object
+uc_from_latin1(std::string_view str);
 
 Object
 to_bytes(std::string_view str) noexcept;

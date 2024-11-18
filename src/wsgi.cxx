@@ -254,6 +254,48 @@ check_header_value(std::string_view value) noexcept
 	return true;
 }
 
+// https://peps.python.org/pep-3333/#a-note-on-string-types
+// https://peps.python.org/pep-3333/#unicode-issues
+// Most strings that are not body data (which is `bytes`) have to represented as native strings, which
+// are unicode in Python 3, so we decode the byte sequence as latin1 (iso-8859-1) and encode as unicode.
+Py::Object
+native_string(std::string_view str)
+{
+	return Py::uc_from_latin1(str);
+}
+
+std::optional<std::string>
+from_native_string(PyObject *str)
+{
+	if (PyUnicode_READY(str) == -1) {
+		// Python exception is set
+		return std::nullopt;
+	}
+
+	const auto length = PyUnicode_GET_LENGTH(str);
+	const auto data = PyUnicode_DATA(str);
+	const auto kind = PyUnicode_KIND(str);
+
+	std::string result;
+	result.reserve(length);
+	for (Py_ssize_t i = 0; i < length; ++i) {
+		const Py_UCS4 ch = PyUnicode_READ(kind, data, i);
+		if (ch > 0xFF) {
+			PyErr_SetString(
+			    PyExc_ValueError,
+			    fmt::format(
+				"String '{}' cannot be encoded as Latin-1. Code point U+{:04X} is out of range.",
+				Py::to_string_view(str),
+				ch)
+				.c_str());
+			return std::nullopt;
+		}
+		result.push_back(static_cast<char>(ch));
+	}
+
+	return result;
+}
+
 PyObject *
 StartResponse(PyObject *self, PyObject *args)
 {
@@ -291,6 +333,8 @@ StartResponse(PyObject *self, PyObject *args)
 		return nullptr;
 	}
 
+	// `status` is actually a native string, but since we only care about the digits and the space, I can
+	// ignore the encoding and just use it as-is.
 	const auto status_sv = std::string_view(status);
 	const auto status_code = ParseInteger<uint16_t>(status_sv.substr(0, status_sv.find(' ')));
 	if (!status_code) {
@@ -317,28 +361,35 @@ StartResponse(PyObject *self, PyObject *args)
 			return nullptr;
 		}
 
-		const auto name = Py::to_string_view(name_obj);
-		if (!check_header_name(name)) {
+		const auto name = from_native_string(name_obj);
+		if (!name) {
 			return nullptr;
 		}
-		const auto value = Py::to_string_view(value_obj);
-		if (!check_header_value(name)) {
+		if (!check_header_name(*name)) {
 			return nullptr;
 		}
 
-		if (HeaderMatch(name, "Content-Length")) {
-			const auto num = ParseInteger<uint64_t>(value);
+		const auto value = from_native_string(value_obj);
+		if (!value) {
+			return nullptr;
+		}
+		if (!check_header_value(*value)) {
+			return nullptr;
+		}
+
+		if (HeaderMatch(*name, "Content-Length")) {
+			const auto num = ParseInteger<uint64_t>(*value);
 			if (!num) {
 				PyErr_SetString(
 				    PyExc_ValueError,
-				    fmt::format("Could not parse Content-Length header: '{}'", value).c_str());
+				    fmt::format("Could not parse Content-Length header: '{}'", *value).c_str());
 				return nullptr;
 			}
 			response->content_length = *num;
 			continue; // Content-Length should not be included in the WAS response
 		}
 
-		response->headers.emplace_back(name, value);
+		response->headers.emplace_back(*name, *value);
 	}
 
 	Py_RETURN_NONE;
@@ -447,22 +498,24 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 		body_stream = new NullInputStream;
 	}
 
-	PyDict_SetItemString(environ, "REQUEST_METHOD", Py::to_pyunicode(http_method_to_string(req.method)));
-	PyDict_SetItemString(environ, "SCRIPT_NAME", Py::to_pyunicode(req.script_name));
-	PyDict_SetItemString(environ, "PATH_INFO", Py::to_pyunicode(req.uri.path));
-	PyDict_SetItemString(environ, "QUERY_STRING", Py::to_pyunicode(req.uri.query));
+	// All keys and values must be native strings
+
+	PyDict_SetItemString(environ, "REQUEST_METHOD", native_string(http_method_to_string(req.method)));
+	PyDict_SetItemString(environ, "SCRIPT_NAME", native_string(req.script_name));
+	PyDict_SetItemString(environ, "PATH_INFO", native_string(req.uri.path));
+	PyDict_SetItemString(environ, "QUERY_STRING", native_string(req.uri.query));
 	if (content_type) {
-		PyDict_SetItemString(environ, "CONTENT_TYPE", Py::to_pyunicode(*content_type));
+		PyDict_SetItemString(environ, "CONTENT_TYPE", native_string(*content_type));
 	}
 	if (content_length) {
-		PyDict_SetItemString(environ, "CONTENT_LENGTH", Py::to_pyunicode(*content_length));
+		PyDict_SetItemString(environ, "CONTENT_LENGTH", native_string(*content_length));
 	}
-	PyDict_SetItemString(environ, "SERVER_NAME", Py::to_pyunicode(req.server_name));
-	PyDict_SetItemString(environ, "SERVER_PORT", Py::to_pyunicode(req.server_port));
-	PyDict_SetItemString(environ, "SERVER_PROTOCOL", Py::to_pyunicode(req.protocol));
+	PyDict_SetItemString(environ, "SERVER_NAME", native_string(req.server_name));
+	PyDict_SetItemString(environ, "SERVER_PORT", native_string(req.server_port));
+	PyDict_SetItemString(environ, "SERVER_PROTOCOL", native_string(req.protocol));
 
 	PyDict_SetItemString(environ, "wsgi.version", Py::wrap(Py_BuildValue("(ii)", 1, 0)));
-	PyDict_SetItemString(environ, "wsgi.url_scheme", Py::to_pyunicode(req.scheme));
+	PyDict_SetItemString(environ, "wsgi.url_scheme", native_string(req.scheme));
 	PyDict_SetItemString(environ, "wsgi.input", WsgiInputStream::CreatePyObject(body_stream));
 	// stderr will be captured by beng-proxy and transmitted to a logging server
 	PyDict_SetItemString(environ, "wsgi.errors", PySys_GetObject("stderr"));
@@ -475,7 +528,7 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 			continue;
 		}
 		const auto translated_name = TranslateHeader(name);
-		PyDict_SetItemString(environ, translated_name.c_str(), Py::to_pyunicode(value));
+		PyDict_SetItemString(environ, translated_name.c_str(), native_string(value));
 	}
 
 	if (PyErr_Occurred()) {
