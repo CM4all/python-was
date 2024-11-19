@@ -530,7 +530,7 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 	std::optional<std::string> content_length;
 	if (req.body) {
 		body_stream = req.body.release();
-		content_length = fmt::format("{}", req.body->ContentLength());
+		content_length = fmt::format("{}", body_stream->ContentLength());
 	} else {
 		body_stream = new NullInputStream;
 	}
