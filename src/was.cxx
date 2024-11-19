@@ -154,7 +154,8 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 	if (was_simple_has_body(was)) {
 		const auto input_remaining = was_simple_input_remaining(was);
 		if (input_remaining < 0) {
-			// TODO: I think this happens if we got DATA, but not LENGTH. What to do here?
+			// TODO: I think this happens if we got DATA, but not LENGTH. Is this simply a chunked request
+			// body? Can this happen in other cases?
 			fmt::print(stderr, "was_simple_has_body is true, but was_simple_input_remaining < 0");
 			if (!was_simple_abort(was)) {
 				fmt::print(stderr, "Error in was_simple_abort\n");
@@ -185,8 +186,10 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 		return;
 	}
 
-	// We are supposed to log here and close the connection. We don't really have that option (anymore).
-	// was_simple_accept will send PREMATURE and I hope that beng-proxy closes the connection by itself.
+	// We are supposed to log here and close the connection (according to PEP-3333). We don't really have that
+	// option (anymore).
+	// Both was_simple_accept and was_simple_end will send PREMATURE.
+	// TODO: Find out what beng-proxy does here. Can it do anything else, but close the remote connection?
 	if (responder.content_length_left > 0) {
 		fmt::print(stderr, "{} bytes of response body data left to send\n", *responder.content_length_left);
 	}
