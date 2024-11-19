@@ -4,6 +4,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <http/method.h>
@@ -90,13 +91,28 @@ struct HttpResponse {
 	std::optional<uint64_t> content_length;
 };
 
-struct HttpResponder {
-	virtual void SendHeaders(HttpResponse &&response) = 0;
-	virtual void SendBody(std::string_view body_data) = 0;
-	bool HeadersSent() const { return headers_sent; }
+class HttpResponder {
+	bool headers_sent = false;
 
 protected:
-	bool headers_sent = false;
+	virtual void SendHeadersImpl(HttpResponse &&response) = 0;
+	virtual void SendBodyImpl(std::string_view body_data) = 0;
+
+public:
+	void SendHeaders(HttpResponse &&response)
+	{
+		assert(!headers_sent);
+		SendHeadersImpl(std::move(response));
+		headers_sent = true;
+	}
+
+	void SendBody(std::string_view body_data)
+	{
+		assert(headers_sent);
+		SendBodyImpl(body_data);
+	}
+
+	bool HeadersSent() const { return headers_sent; }
 };
 
 struct RequestHandler {

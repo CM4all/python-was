@@ -37,7 +37,7 @@ struct WasResponder : public HttpResponder {
 
 	WasResponder(struct was_simple *was) : was(was) {}
 
-	void SendHeaders(HttpResponse &&response) override
+	void SendHeadersImpl(HttpResponse &&response) override
 	{
 		assert(http_status_is_valid(response.status));
 
@@ -63,15 +63,11 @@ struct WasResponder : public HttpResponder {
 				throw std::runtime_error("was_simple_set_length failed");
 			}
 		}
-
-		headers_sent = true;
 	}
 
 	// Needs to be called before SendHeaders
-	void SendBody(std::string_view body_data) override
+	void SendBodyImpl(std::string_view body_data) override
 	{
-		assert(headers_sent);
-
 		const auto write_len =
 		    content_length_left ? std::min(*content_length_left, body_data.size()) : body_data.size();
 

@@ -94,8 +94,8 @@ request(RequestHandler &handler,
 	}
 
 	struct PrintResponder : public HttpResponder {
-		void SendHeaders(HttpResponse &&response) override { print_response(response); }
-		void SendBody(std::string_view body_data) override { fmt::print("{}", body_data); }
+		void SendHeadersImpl(HttpResponse &&response) override { print_response(response); }
+		void SendBodyImpl(std::string_view body_data) override { fmt::print("{}", body_data); }
 	};
 
 	PrintResponder responder;
