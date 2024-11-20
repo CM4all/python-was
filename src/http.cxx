@@ -12,13 +12,6 @@ StringInputStream::Read(std::span<char> dest)
 	return to_read;
 }
 
-bool
-StringOutputStream::Write(std::span<const char> src)
-{
-	data_.append(std::string_view(src.data(), src.size()));
-	return true;
-}
-
 [[gnu::pure]] Uri
 Uri::split(std::string_view uri) noexcept
 {

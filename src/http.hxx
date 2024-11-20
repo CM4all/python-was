@@ -10,9 +10,6 @@
 #include <http/method.h>
 #include <http/status.h>
 
-// So far this whole Stream abstraction doesn't even make sense, but I hope it will make
-// moving to an async solution easier.
-
 class InputStream {
 	size_t content_length = 0;
 
@@ -42,22 +39,6 @@ public:
 	StringInputStream(std::string str) : InputStream(str.size()), data(std::move(str)) {}
 
 	size_t Read(std::span<char> dest) override;
-};
-
-struct OutputStream {
-	virtual ~OutputStream() = default;
-	virtual bool Write(std::span<const char> src) = 0;
-};
-
-class StringOutputStream : public OutputStream {
-	std::string data_;
-
-public:
-	bool Write(std::span<const char> src) override;
-
-	operator std::string_view() const { return data_; }
-	const char *data() const { return data_.data(); }
-	size_t size() const { return data_.size(); }
 };
 
 struct Uri {
