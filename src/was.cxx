@@ -193,9 +193,13 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 	}
 
 	// We are supposed to log here and close the connection (according to PEP-3333). We don't really have that
-	// option (anymore).
-	// Both was_simple_accept and was_simple_end will send PREMATURE.
-	// TODO: Find out what beng-proxy does here. Can it do anything else, but close the remote connection?
+	// option through WAS.
+	// Also WSGI is from 2010, so what they really meant is probably that we should close the HTTP/1.1 connection,
+	// not considering HTTP/2 might exist in the future and require different behavior.
+	// Both was_simple_accept and was_simple_end will send PREMATURE and for HTTP/1.1 beng-proxy doesn't really have
+	// a choice but to close the external HTTP connection, because the client might wait for the rest of the body
+	// forever. For HTTP/2 it will only close the stream.
+	// In either case, we don't have to do anything but log, because the next was_simple_accept will send PREMATURE.
 	if (responder.content_length_left > 0) {
 		fmt::print(stderr, "{} bytes of response body data left to send\n", *responder.content_length_left);
 	}
