@@ -435,13 +435,15 @@ StartResponse(PyObject *self, PyObject *args)
 [[gnu::pure]] std::string
 TranslateHeader(std::string_view header_name) noexcept
 {
-	std::string str(header_name.size() + 5, '\0');
+	std::string str;
+	str.reserve(header_name.size() + 5);
 	str.append("HTTP_");
 	for (size_t i = 0; i < header_name.size(); ++i) {
-		str[i] = ToUpperASCII(header_name[i]);
-		if (str[i] == '-') {
-			str[i] = '_';
+		auto ch = ToUpperASCII(header_name[i]);
+		if (ch == '-') {
+			ch = '_';
 		}
+		str.push_back(ch);
 	}
 	return str;
 }
