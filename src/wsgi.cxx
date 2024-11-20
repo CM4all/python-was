@@ -597,6 +597,9 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 	auto args = Py::wrap(
 	    PyTuple_Pack(2, static_cast<PyObject *>(environ), static_cast<PyObject *>(start_response_callable)));
 	auto result = Py::wrap(PyObject_CallObject(app, args));
+	// If any Python exceptions are raised during start_response, they end up here, because Flask/Werkzeug
+	// do not catch them. I am not sure if the spec agrees with this, but this is a note for the future that
+	// this is known behavior.
 	if (!result) {
 		Py::rethrow_python_exception();
 	}
