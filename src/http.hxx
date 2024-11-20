@@ -11,10 +11,10 @@
 #include <http/status.h>
 
 class InputStream {
-	size_t content_length = 0;
+	std::optional<uint64_t> content_length = 0;
 
 public:
-	InputStream(uint64_t content_length) : content_length(content_length) {}
+	InputStream(std::optional<uint64_t> content_length) : content_length(content_length) {}
 
 	virtual ~InputStream() = default;
 
@@ -23,7 +23,7 @@ public:
 	// Throws on error
 	virtual size_t Read(std::span<char> dest) = 0;
 
-	uint64_t ContentLength() const { return content_length; }
+	std::optional<uint64_t> ContentLength() const { return content_length; }
 };
 
 struct NullInputStream : public InputStream {

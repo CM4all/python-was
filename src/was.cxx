@@ -13,7 +13,11 @@ class WasInputStream : public InputStream {
 	struct was_simple *was;
 
 public:
-	WasInputStream(struct was_simple *was, uint64_t content_length) : InputStream(content_length), was(was) {}
+	WasInputStream(struct was_simple *was, std::optional<uint64_t> content_length)
+	  : InputStream(content_length)
+	  , was(was)
+	{
+	}
 
 	size_t Read(std::span<char> dest) override
 	{
@@ -158,17 +162,13 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 	}
 
 	if (was_simple_has_body(was)) {
+		// It's possible we got DATA, but not LENGTH, in which case we have a body and input_remaining
+		// is -1. This is either a chunked request body or simply HTTP/2. In that case we simply don't have a
+		// content_length to tell the WSGI app.
 		const auto input_remaining = was_simple_input_remaining(was);
-		if (input_remaining < 0) {
-			// TODO: I think this happens if we got DATA, but not LENGTH. Is this simply a chunked request
-			// body? Can this happen in other cases?
-			fmt::print(stderr, "was_simple_has_body is true, but was_simple_input_remaining < 0");
-			if (!was_simple_abort(was)) {
-				fmt::print(stderr, "Error in was_simple_abort\n");
-			}
-			return;
-		}
-		request.body = std::make_unique<WasInputStream>(was, input_remaining);
+		const auto input_remaining_opt =
+		    input_remaining >= 0 ? std::optional<uint64_t>(input_remaining) : std::nullopt;
+		request.body = std::make_unique<WasInputStream>(was, input_remaining_opt);
 	}
 
 	WasResponder responder{ was };

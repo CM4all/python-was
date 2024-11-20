@@ -527,15 +527,11 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 
 	const auto content_type = req.FindHeader("Content-Type");
 
-	InputStream *body_stream = nullptr;
+	InputStream *body_stream = req.body ? req.body.release() : new NullInputStream;
+
 	// The spec is unclear, but Flask also passes Content-Length as a string
-	std::optional<std::string> content_length;
-	if (req.body) {
-		body_stream = req.body.release();
-		content_length = fmt::format("{}", body_stream->ContentLength());
-	} else {
-		body_stream = new NullInputStream;
-	}
+	std::string content_length =
+	    body_stream->ContentLength() ? fmt::format("{}", *body_stream->ContentLength()) : "";
 
 	// All keys and values must be native strings
 
@@ -545,7 +541,7 @@ WsgiRequestHandler::Process(HttpRequest &&req, HttpResponder &responder)
 	PyDict_SetItemString(environ, "PATH_INFO", native_string(req.uri.path));
 	PyDict_SetItemString(environ, "QUERY_STRING", native_string(req.uri.query));
 	PyDict_SetItemString(environ, "CONTENT_TYPE", native_string(content_type.value_or("")));
-	PyDict_SetItemString(environ, "CONTENT_LENGTH", native_string(content_length.value_or("")));
+	PyDict_SetItemString(environ, "CONTENT_LENGTH", native_string(content_length));
 	PyDict_SetItemString(environ, "SERVER_NAME", native_string(req.server_name));
 	PyDict_SetItemString(environ, "SERVER_PORT", native_string(req.server_port));
 	PyDict_SetItemString(environ, "SERVER_PROTOCOL", native_string(req.protocol));
