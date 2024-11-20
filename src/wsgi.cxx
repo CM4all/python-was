@@ -73,14 +73,14 @@ WsgiInputStream::read(PyObject *self, PyObject *args)
 PyObject *
 WsgiInputStream::readline(PyObject * /*self*/, PyObject * /*args*/)
 {
-	assert(false); // TODO: Implement this! Not used by flask
+	assert(false); // TODO: Implement this! Not used by flask or Django
 	return Py_None;
 }
 
 PyObject *
 WsgiInputStream::readlines(PyObject * /*self*/, PyObject * /*args*/)
 {
-	assert(false); // TODO: Implement this! Not used by flask
+	assert(false); // TODO: Implement this! Not used by flask or Django
 	return Py_None;
 }
 
@@ -94,7 +94,7 @@ WsgiInputStream::iter(PyObject *self)
 PyObject *
 WsgiInputStream::next(PyObject * /*self*/)
 {
-	assert(false); // TODO: Implement this! Not used by flask
+	assert(false); // TODO: Implement this! Not used by flask or Django
 	return Py_None;
 }
 
