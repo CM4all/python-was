@@ -68,6 +68,12 @@ struct WasResponder : public HttpResponder {
 	// Needs to be called before SendHeaders
 	void SendBodyImpl(std::string_view body_data) override
 	{
+		if (body_data.size() == 0 && content_length_left == 0) {
+			// If the initial Content-Length was 0, we have already called was_simple_end,
+			// so we must not call was_simple_write, even with length = 0.
+			return;
+		}
+
 		const auto write_len =
 		    content_length_left ? std::min(*content_length_left, body_data.size()) : body_data.size();
 
