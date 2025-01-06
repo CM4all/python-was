@@ -8,7 +8,7 @@
 #include "was.hxx"
 #include "wsgi.hxx"
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <unistd.h>
 
 #include <util/NumberParser.hxx>
@@ -63,7 +63,7 @@ struct CommandLine {
 void
 print_response(const HttpResponse &resp) noexcept
 {
-	fmt::print(stderr, "STATUS {}\n", resp.status);
+	fmt::print(stderr, "STATUS {}\n", fmt::underlying(resp.status));
 	for (const auto &[name, value] : resp.headers) {
 		fmt::print(stderr, "{}: {}\n", name, value);
 	}

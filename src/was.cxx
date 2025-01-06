@@ -4,7 +4,7 @@
 #include <util/NumberParser.hxx>
 #include <was/simple.h>
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 
 namespace {
 // This is a WasInputStream as opposed to a FdInputStream, because we need to call was_simple_received, even if we were
@@ -103,7 +103,7 @@ Was::ProcessRequest(RequestHandler &handler, std::string_view uri) noexcept
 {
 	const auto method = was_simple_get_method(was);
 	if (method == HTTP_METHOD_INVALID) {
-		fmt::print(stderr, "Invalid method: {}\n", method);
+		fmt::print(stderr, "Invalid method: {}\n", fmt::underlying(method));
 		if (!was_simple_status(was, HTTP_STATUS_METHOD_NOT_ALLOWED)) {
 			fmt::print(stderr, "Error in was_simple_status\n");
 		}

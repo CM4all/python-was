@@ -369,7 +369,7 @@ StartResponse(PyObject *self, PyObject *args)
 	}
 	response.status = static_cast<http_status_t>(*status_code);
 	if (!http_status_is_valid(response.status)) {
-		PyErr_SetString(PyExc_ValueError, fmt::format("Invalid HTTP Status '{}'", response.status).c_str());
+		PyErr_SetString(PyExc_ValueError, fmt::format("Invalid HTTP Status '{}'", *status_code).c_str());
 		return nullptr;
 	}
 
