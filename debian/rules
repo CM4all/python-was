@@ -1,0 +1,12 @@
+#!/usr/bin/make -f
+# -*- mode: makefile; coding: utf-8 -*-
+
+MESON_OPTIONS = \
+	--werror
+
+%:
+	dh $@
+
+.PHONY: override_dh_auto_configure
+override_dh_auto_configure:
+	dh_auto_configure -- $(MESON_OPTIONS)

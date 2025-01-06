@@ -1,0 +1,20 @@
+Source: cm4all-python-was
+Section: web
+Priority: extra
+Maintainer: Joel Schumacher <joel.schumacher@ionos.com>
+Build-Depends: debhelper (>= 13.3~),
+ meson (>= 1),
+ g++ (>= 4:10),
+ libfmt-dev (>= 9),
+ libpython3-dev (>=3.11),
+ libcm4all-was-simple-dev (>= 1.20)
+Standards-Version: 4.0.0
+Vcs-Browser: https://github.com/CM4all/python-was
+Vcs-Git: git://github.com/CM4all/python-was
+
+Package: cm4all-python-was
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Enhances: cm4all-beng-proxy
+Description: Python (WSGI) WAS Server
+ python-was is a WAS server that can serve Python WSGI application through WAS
